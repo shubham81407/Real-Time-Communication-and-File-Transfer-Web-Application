@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#f5f6ef">
+	<title>Plans | Relay</title>
+	<style>
+		:root {
+			color-scheme: light;
+			--ink: #19352f;
+			--muted: #66736d;
+			--paper: #f5f6ef;
+			--line: #dce2d7;
+			--green: #28664f;
+			--lime: #d9ee9c;
+			--coral: #e27c60;
+		}
+
+		* { box-sizing: border-box; }
+
+		body {
+			margin: 0;
+			min-width: 320px;
+			min-height: 100vh;
+			color: var(--ink);
+			background-color: var(--paper);
+			background-image: radial-gradient(#dbe1d5 0.8px, transparent 0.8px);
+			background-size: 20px 20px;
+			font-family: "Segoe UI", sans-serif;
+		}
+
+		.shell {
+			width: min(1080px, calc(100% - 40px));
+			margin: 0 auto;
+		}
+
+		header {
+			height: 76px;
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			border-bottom: 1px solid var(--line);
+		}
+
+		.brand {
+			display: inline-flex;
+			align-items: center;
+			gap: 10px;
+			color: var(--ink);
+			font-size: 18px;
+			font-weight: 750;
+			text-decoration: none;
+		}
+
+		.brand-mark {
+			width: 30px;
+			height: 30px;
+			display: grid;
+			place-items: center;
+			border-radius: 9px;
+			color: var(--ink);
+			background: var(--lime);
+			font-family: Georgia, serif;
+			font-size: 19px;
+		}
+
+		.nav-note { color: var(--muted); font-size: 13px; }
+
+		main { padding: 64px 0 72px; }
+
+		.intro { text-align: center; }
+
+		.eyebrow {
+			margin: 0 0 15px;
+			color: var(--green);
+			font-size: 12px;
+			font-weight: 750;
+			letter-spacing: 1.4px;
+			text-transform: uppercase;
+		}
+
+		h1 {
+			margin: 0;
+			font-family: Georgia, "Times New Roman", serif;
+			font-size: clamp(38px, 6vw, 58px);
+			font-weight: 500;
+			line-height: 1.08;
+		}
+
+		.subtitle {
+			max-width: 490px;
+			margin: 16px auto 0;
+			color: var(--muted);
+			font-size: 16px;
+			line-height: 1.6;
+		}
+
+		.billing {
+			display: inline-flex;
+			align-items: center;
+			gap: 4px;
+			margin-top: 26px;
+			padding: 4px;
+			border: 1px solid var(--line);
+			border-radius: 8px;
+			background: #fff;
+		}
+
+		.billing button {
+			min-height: 36px;
+			padding: 0 13px;
+			border: 0;
+			border-radius: 5px;
+			color: var(--muted);
+			background: transparent;
+			font: inherit;
+			font-size: 13px;
+			cursor: pointer;
+		}
+
+		.billing button[aria-pressed="true"] {
+			color: #fff;
+			background: var(--green);
+		}
+
+		.save-note { margin-left: 4px; color: var(--green); font-size: 11px; font-weight: 700; }
+
+		.plans {
+			display: grid;
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			gap: 16px;
+			margin-top: 42px;
+			text-align: left;
+		}
+
+		.plan {
+			position: relative;
+			display: flex;
+			flex-direction: column;
+			min-height: 366px;
+			padding: 25px 23px 22px;
+			border: 1px solid var(--line);
+			border-radius: 7px;
+			background: rgba(255, 255, 255, 0.9);
+			animation: rise 500ms both;
+		}
+
+		.plan:nth-child(2) { animation-delay: 90ms; }
+		.plan:nth-child(3) { animation-delay: 180ms; }
+
+		.plan.featured {
+			border: 2px solid var(--green);
+			background: #fbfff4;
+		}
+
+		.popular {
+			position: absolute;
+			top: -12px;
+			right: 17px;
+			padding: 5px 9px;
+			border-radius: 4px;
+			color: var(--ink);
+			background: var(--lime);
+			font-size: 10px;
+			font-weight: 800;
+			letter-spacing: 0.7px;
+			text-transform: uppercase;
+		}
+
+		.plan-name { margin: 0; font-size: 16px; font-weight: 750; }
+		.plan-desc { min-height: 38px; margin: 7px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+		.price {
+			display: flex;
+			align-items: baseline;
+			gap: 5px;
+			margin: 22px 0 20px;
+		}
+
+		.amount { font-family: Georgia, "Times New Roman", serif; font-size: 43px; line-height: 1; }
+		.period { color: var(--muted); font-size: 12px; }
+		.divider { height: 1px; background: var(--line); }
+
+		.features {
+			display: grid;
+			gap: 12px;
+			margin: 19px 0 23px;
+			padding: 0;
+			list-style: none;
+			color: #41574e;
+			font-size: 13px;
+		}
+
+		.features li { display: flex; align-items: flex-start; gap: 9px; line-height: 1.4; }
+		.check { color: var(--green); font-weight: 800; }
+
+		.choose {
+			width: 100%;
+			min-height: 42px;
+			margin-top: auto;
+			border: 1px solid var(--green);
+			border-radius: 5px;
+			color: var(--green);
+			background: transparent;
+			font: inherit;
+			font-size: 13px;
+			font-weight: 700;
+			cursor: pointer;
+		}
+
+		.featured .choose { color: #fff; background: var(--green); }
+		.choose:hover { background: var(--lime); color: var(--ink); }
+		.featured .choose:hover { background: #1e533f; color: #fff; }
+		.choose:focus-visible, .billing button:focus-visible { outline: 3px solid var(--coral); outline-offset: 3px; }
+
+		.notice {
+			min-height: 20px;
+			margin: 18px 0 0;
+			color: var(--green);
+			font-size: 13px;
+			text-align: center;
+		}
+
+		@keyframes rise {
+			from { opacity: 0; transform: translateY(10px); }
+			to { opacity: 1; transform: translateY(0); }
+		}
+
+		@media (max-width: 760px) {
+			main { padding-top: 48px; }
+			.plans { grid-template-columns: 1fr; max-width: 440px; margin: 42px auto 0; gap: 20px; }
+			.plan { min-height: auto; }
+			.features { margin-bottom: 22px; }
+		}
+
+		@media (prefers-reduced-motion: reduce) {
+			*, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+		}
+	</style>
+</head>
+<body>
+	<header class="shell">
+		<a class="brand" href="#top" aria-label="Relay home">
+			<span class="brand-mark" aria-hidden="true">r</span>
+			<span>relay</span>
+		</a>
+		<span class="nav-note">Plans for teams that stay in sync</span>
+	</header>
+
+	<main class="shell" id="top">
+		<section class="intro" aria-labelledby="page-title">
+			<p class="eyebrow">Simple, flexible plans</p>
+			<h1 id="page-title">Good conversations<br>start here.</h1>
+			<p class="subtitle">Meet, message, and share files with a plan that fits the way your team works.</p>
+
+			<div class="billing" role="group" aria-label="Billing period">
+				<button type="button" data-period="monthly" aria-pressed="true">Monthly</button>
+				<button type="button" data-period="yearly" aria-pressed="false">Yearly <span class="save-note">SAVE 20%</span></button>
+			</div>
+
+			<div class="plans" aria-label="Available plans">
+				<article class="plan">
+					<h2 class="plan-name">Starter</h2>
+					<p class="plan-desc">For small groups getting connected.</p>
+					<p class="price"><span class="amount" data-monthly="0" data-yearly="0">$0</span><span class="period">/ user / month</span></p>
+					<div class="divider"></div>
+					<ul class="features">
+						<li><span class="check" aria-hidden="true">✓</span><span>1:1 and group messaging</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>Audio and video calls</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>File sharing up to 100 MB</span></li>
+					</ul>
+					<button class="choose" type="button" data-plan="Starter">Get started</button>
+				</article>
+
+				<article class="plan featured">
+					<span class="popular">Most popular</span>
+					<h2 class="plan-name">Team</h2>
+					<p class="plan-desc">For teams that work better together.</p>
+					<p class="price"><span class="amount" data-monthly="8" data-yearly="6">$8</span><span class="period">/ user / month</span></p>
+					<div class="divider"></div>
+					<ul class="features">
+						<li><span class="check" aria-hidden="true">✓</span><span>Everything in Starter</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>Group calls up to 50 people</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>5 GB file storage per user</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>Searchable message history</span></li>
+					</ul>
+					<button class="choose" type="button" data-plan="Team">Choose Team</button>
+				</article>
+
+				<article class="plan">
+					<h2 class="plan-name">Business</h2>
+					<p class="plan-desc">For organizations that need more control.</p>
+					<p class="price"><span class="amount" data-monthly="16" data-yearly="13">$16</span><span class="period">/ user / month</span></p>
+					<div class="divider"></div>
+					<ul class="features">
+						<li><span class="check" aria-hidden="true">✓</span><span>Everything in Team</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>Group calls up to 200 people</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>Unlimited file storage</span></li>
+						<li><span class="check" aria-hidden="true">✓</span><span>Priority support</span></li>
+					</ul>
+					<button class="choose" type="button" data-plan="Business">Choose Business</button>
+				</article>
+			</div>
+			<p class="notice" id="notice" aria-live="polite"></p>
+		</section>
+	</main>
+
+	<script>
+		const billingButtons = document.querySelectorAll("[data-period]");
+		const prices = document.querySelectorAll(".amount[data-monthly]");
+		const notice = document.querySelector("#notice");
+
+		billingButtons.forEach((button) => {
+			button.addEventListener("click", () => {
+				const period = button.dataset.period;
+				billingButtons.forEach((option) => option.setAttribute("aria-pressed", String(option === button)));
+				prices.forEach((price) => {
+					price.textContent = `$${price.dataset[period]}`;
+				});
+			});
+		});
+
+		document.querySelectorAll("[data-plan]").forEach((button) => {
+			button.addEventListener("click", () => {
+				notice.textContent = `${button.dataset.plan} plan selected.`;
+			});
+		});
+	</script>
+</body>
+</html>
