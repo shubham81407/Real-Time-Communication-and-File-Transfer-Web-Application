@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Real-Time Communication App</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        background: #f4f6f8;
+        color: #222;
+      }
+      h1 {
+        margin-bottom: 8px;
+      }
+      #status {
+        padding: 8px 16px;
+        border-radius: 6px;
+        background: #e0e0e0;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Real-Time Communication App</h1>
+    <p>Phase 1 - Initial Setup</p>
+    <div id="status">Checking server...</div>
+
+    <script>
+      fetch("/api/health")
+        .then((res) => res.json())
+        .then((data) => {
+          document.getElementById("status").textContent =
+            "Server status: " + data.status;
+        })
+        .catch(() => {
+          document.getElementById("status").textContent =
+            "Server not reachable";
+        });
+    </script>
+  </body>
+</html>

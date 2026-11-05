@@ -1,0 +1,27 @@
+{
+  "name": "cn_project",
+  "version": "1.0.0",
+  "description": "Real-Time Communication Web Application - Computer Networks mini-project",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "nodejs",
+    "express",
+    "socket.io",
+    "real-time",
+    "computer-networks"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
