@@ -1,0 +1,528 @@
+/* ============================================================
+   File: client/css/style.css
+   Kaam: Poori website ka design (colors, layout, responsive).
+   Theme: Clean light theme + teal accent (WhatsApp/Telegram jaisa feel)
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   1. CSS VARIABLES
+   Colors ek jagah define kar diye. Baad me theme badalna ho to
+   sirf yahan change karna padega.
+   ------------------------------------------------------------ */
+:root {
+  --primary: #00a884;          /* main teal color */
+  --primary-dark: #008069;     /* hover par thoda gehra */
+  --bg-app: #f0f2f5;           /* page ka background */
+  --bg-white: #ffffff;
+  --bg-chat: #efeae2;          /* chat feed ka background */
+  --bubble-sent: #d9fdd3;      /* mere message ka color */
+  --bubble-received: #ffffff;  /* samne wale ke message ka color */
+  --text-main: #111b21;
+  --text-light: #667781;
+  --border: #e9edef;
+  --online: #25d366;
+  --error: #d93025;
+}
+
+/* ------------------------------------------------------------
+   2. RESET
+   Browsers ke default margin/padding alag hote hain. Sabko 0 karke
+   shuru karte hain. box-sizing: border-box se padding width ke andar
+   count hoti hai, layout predictable rehta hai.
+   ------------------------------------------------------------ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: var(--bg-app);
+  color: var(--text-main);
+  height: 100vh;       /* vh = viewport height, poori screen ki height */
+  overflow: hidden;    /* page khud scroll na kare, andar ke parts scroll karenge */
+}
+
+/* ".hidden" class: element ko screen se hata deta hai.
+   JS isi class ko add/remove karke views switch karta hai. */
+.hidden {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------
+   3. COMMON COMPONENTS (avatar, buttons)
+   ------------------------------------------------------------ */
+
+/* Avatar: gol (circle) profile picture jisme initial letter hota hai.
+   flex + center se letter bilkul beech me aata hai. */
+.avatar {
+  position: relative;          /* online badge ko isi ke andar position karne ke liye */
+  width: 48px;
+  height: 48px;
+  min-width: 48px;             /* flex me avatar pichak na jaye */
+  border-radius: 50%;          /* 50% = perfect circle */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 600;
+  font-size: 18px;
+}
+
+/* Alag-alag avatar colors */
+.avatar-me { background: var(--primary); }
+.avatar-blue { background: #4a90e2; }
+.avatar-pink { background: #e91e8c; }
+.avatar-green { background: #43a047; }
+.avatar-orange { background: #fb8c00; }
+.avatar-purple { background: #8e44ad; }
+
+/* Online badge: avatar ke bottom-right me chhota hara gol dot.
+   position: absolute se ye parent (.avatar) ke corner me fix hota hai. */
+.online-badge {
+  position: absolute;
+  bottom: 1px;
+  right: 1px;
+  width: 12px;
+  height: 12px;
+  background: var(--online);
+  border: 2px solid #fff;
+  border-radius: 50%;
+}
+
+/* Chhota icon button (logout, back) */
+.icon-btn {
+  background: none;
+  border: none;
+  font-size: 22px;
+  color: var(--text-light);
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 50%;
+}
+.icon-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ------------------------------------------------------------
+   4. AUTH VIEW (Login / Register screen)
+   ------------------------------------------------------------ */
+
+/* Poori screen par center me card dikhane ke liye flexbox:
+   justify-content = horizontal center, align-items = vertical center. */
+.auth-view {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+  background: linear-gradient(135deg, #00a884 0%, #005c4b 100%);
+  overflow-y: auto;
+}
+
+.auth-card {
+  background: var(--bg-white);
+  width: 100%;
+  max-width: 400px;            /* bade screen par bhi card 400px se zyada chauda nahi hoga */
+  padding: 32px 28px;
+  border-radius: 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  text-align: center;
+}
+
+.auth-logo { font-size: 44px; }
+.auth-title { font-size: 26px; margin-top: 4px; }
+.auth-subtitle {
+  color: var(--text-light);
+  font-size: 14px;
+  margin-bottom: 20px;
+}
+
+/* Tabs: do buttons ek line me barabar chaude (flex: 1) */
+.auth-tabs {
+  display: flex;
+  background: var(--bg-app);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 20px;
+}
+.tab-btn {
+  flex: 1;                     /* dono buttons ko barabar jagah */
+  padding: 10px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-light);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;        /* smooth color change */
+}
+.tab-btn.active {
+  background: var(--bg-white);
+  color: var(--primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+/* Forms: by default chhupe hote hain, sirf .active wala dikhta hai */
+.auth-form {
+  display: none;
+  text-align: left;
+}
+.auth-form.active {
+  display: block;
+}
+
+.form-group {
+  margin-bottom: 14px;
+}
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text-main);
+}
+.form-group input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 15px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+/* Input par click karne par teal border */
+.form-group input:focus {
+  border-color: var(--primary);
+}
+
+.form-error {
+  color: var(--error);
+  font-size: 13px;
+  min-height: 18px;            /* error na ho tab bhi jagah reserve, layout jump na kare */
+  margin-bottom: 8px;
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 12px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+
+.btn-link {
+  margin-top: 16px;
+  background: none;
+  border: none;
+  color: var(--text-light);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------
+   5. CHAT DASHBOARD - MAIN LAYOUT
+   .chat-app = parent flex container.
+   Andar do bacche hain: .sidebar (left) aur .chat-area (right).
+   display: flex se dono side-by-side aa jaate hain.
+   ------------------------------------------------------------ */
+.chat-app {
+  display: flex;
+  height: 100vh;
+  max-width: 1400px;
+  margin: 0 auto;              /* bade monitor par center me */
+  background: var(--bg-white);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+}
+
+/* ------------------------------------------------------------
+   6. SIDEBAR (left part)
+   ------------------------------------------------------------ */
+.sidebar {
+  width: 360px;                /* fixed width */
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;      /* header, search, list upar se neeche stack honge */
+  border-right: 1px solid var(--border);
+  background: var(--bg-white);
+}
+
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;  /* profile left me, logout button right me */
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-app);
+}
+
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;                   /* avatar aur text ke beech gap */
+}
+.profile-info h2 {
+  font-size: 16px;
+}
+.profile-status {
+  font-size: 12px;
+  color: var(--online);
+}
+
+.search-box {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.search-box input {
+  width: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: var(--bg-app);
+  border-radius: 20px;
+  font-size: 14px;
+  outline: none;
+}
+
+/* Conversation list: flex: 1 se ye bachi hui poori height le leta hai,
+   aur overflow-y: auto se list lambi ho to sirf ye scroll hoti hai. */
+.conversation-list {
+  list-style: none;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s;
+}
+.conversation-item:hover {
+  background: #f5f6f6;
+}
+.conversation-item.active {
+  background: #e7f7f3;         /* selected chat halka teal */
+}
+
+/* min-width: 0 zaroori hai warna lamba text flex item ko bahar nikaal deta hai
+   aur ellipsis (...) kaam nahi karta. */
+.conversation-info {
+  flex: 1;
+  min-width: 0;
+}
+.conversation-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.conversation-top h3 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.conversation-time {
+  font-size: 12px;
+  color: var(--text-light);
+}
+/* Last message ek line me, zyada lamba ho to "..." se kat jaye */
+.conversation-last {
+  font-size: 14px;
+  color: var(--text-light);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ------------------------------------------------------------
+   7. CHAT AREA (right part)
+   flex: 1 = sidebar ke baad bachi hui poori width le lo.
+   Andar column flex: header (upar), feed (beech, scroll), input (neeche).
+   ------------------------------------------------------------ */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-chat);
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border);
+}
+.chat-header-info h2 {
+  font-size: 16px;
+}
+.chat-status {
+  font-size: 13px;
+  color: var(--text-light);
+}
+.chat-status.online {
+  color: var(--primary);
+}
+
+/* Typing indicator ke teen dots ka animation */
+.typing-indicator {
+  font-size: 13px;
+  color: var(--primary);
+  font-style: italic;
+}
+.dots i {
+  font-style: normal;
+  animation: blink 1.4s infinite both;
+}
+.dots i:nth-child(2) { animation-delay: 0.2s; }
+.dots i:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.2; }
+  40% { opacity: 1; }
+}
+
+/* Message feed: flex: 1 se beech ki saari jagah leta hai.
+   Andar bhi flex column hai taaki bubbles upar se neeche aayein. */
+.message-feed {
+  flex: 1;
+  overflow-y: auto;            /* messages zyada hon to yahi scroll hoga */
+  padding: 20px 6%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.date-divider {
+  text-align: center;
+  margin: 6px 0;
+}
+.date-divider span {
+  background: #fff;
+  color: var(--text-light);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Message bubble.
+   max-width: 65% se bubble kabhi poori width nahi lega.
+   align-self se bubble left (received) ya right (sent) jaata hai. */
+.message {
+  max-width: 65%;
+  padding: 8px 12px 6px;
+  border-radius: 10px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+  word-wrap: break-word;       /* lamba word bubble se bahar na jaye */
+}
+.message.received {
+  align-self: flex-start;      /* left side */
+  background: var(--bubble-received);
+  border-top-left-radius: 0;   /* bubble ka "tail" jaisa look */
+}
+.message.sent {
+  align-self: flex-end;        /* right side */
+  background: var(--bubble-sent);
+  border-top-right-radius: 0;
+}
+.message-text {
+  font-size: 15px;
+  line-height: 1.4;
+}
+.message-time {
+  display: block;
+  text-align: right;
+  font-size: 11px;
+  color: var(--text-light);
+  margin-top: 2px;
+}
+
+/* Message input bar (sabse neeche) */
+.message-input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-app);
+}
+.message-input-bar input {
+  flex: 1;                     /* text box bachi hui saari width le */
+  padding: 12px 16px;
+  border: none;
+  border-radius: 24px;
+  font-size: 15px;
+  outline: none;
+}
+.send-btn {
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.send-btn:hover {
+  background: var(--primary-dark);
+}
+
+/* Back button desktop par chhupa rehta hai */
+.back-btn {
+  display: none;
+}
+
+/* ------------------------------------------------------------
+   8. RESPONSIVE DESIGN (media queries)
+   Jab screen 768px ya usse chhoti ho (mobile/tablet), tab ye rules lagenge.
+   Mobile par ek time me sirf ek panel dikhate hain:
+   - Default: sirf sidebar (chat list)
+   - Chat open karne par: sirf chat area (.chat-open class se)
+   ------------------------------------------------------------ */
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;               /* poori screen ki width */
+    min-width: 0;
+    border-right: none;
+  }
+
+  /* Default me chat area chhupa do */
+  .chat-area {
+    display: none;
+  }
+
+  /* .chat-open class lagne par sidebar chhupao aur chat area dikhao */
+  .chat-app.chat-open .sidebar {
+    display: none;
+  }
+  .chat-app.chat-open .chat-area {
+    display: flex;
+  }
+
+  /* Mobile par back button dikhao */
+  .back-btn {
+    display: block;
+  }
+
+  .message {
+    max-width: 85%;            /* mobile par bubble thoda chauda */
+  }
+  .message-feed {
+    padding: 16px 4%;
+  }
+}
