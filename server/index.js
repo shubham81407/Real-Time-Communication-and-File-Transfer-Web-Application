@@ -1,88 +1,140 @@
-// ============================================================
-// File: server/index.js
-// Kaam: Express server start karna, database connect karna,
-//       auth routes mount karna aur client/ ki static files serve karna.
-// ============================================================
+// ==========================================
+// SERVER ENTRY POINT (server/index.js)
+// ==========================================
+require('dotenv').config();
 
-// .env ke variables (jaise PORT) load karta hai. Sabse upar rakhna zaroori hai.
-require("dotenv").config();
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const path = require('path');
 
-const path = require("path");
-const express = require("express");
-
-// db.js ko import karte hi database connect ho jaata hai aur
-// users table ban jaati hai (db.js ke andar ka code chal jaata hai).
-require("./db");
-
-// Auth routes wali file import (register, login, logout).
-const authRoutes = require("./routes/auth");
+// db.js se database helpers import karna
+const { db, run, get, all } = require('./db');
+const authRoutes = require('./routes/auth');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const server = http.createServer(app);
 
-// client folder ka absolute path.
-const CLIENT_DIR = path.join(__dirname, "..", "client");
-
-// ------------------------------------------------------------
-// Middleware (har request ke beech me chalne wale helpers)
-// ------------------------------------------------------------
-
-// express.json(): jab frontend JSON body bhejta hai (Content-Type: application/json),
-// ye usse padh ke JavaScript object bana deta hai aur req.body me rakh deta hai.
-// Iske bina req.body undefined hota.
-app.use(express.json());
-
-// HTML form ka urlencoded data samajhne ke liye.
-app.use(express.urlencoded({ extended: true }));
-
-// client/ folder ki files (HTML, CSS, JS) seedhe browser ko do.
-app.use(express.static(CLIENT_DIR));
-
-// ------------------------------------------------------------
-// Routes
-// ------------------------------------------------------------
-
-// Root route: http://localhost:5000 par index.html bhejo.
-app.get("/", (req, res) => {
-  res.sendFile(path.join(CLIENT_DIR, "index.html"));
+// Socket.IO server initialize karna
+const io = new Server(server, {
+  cors: { origin: "*" }
 });
 
-// Health check: server chal raha hai ya nahi.
-app.get("/api/health", (req, res) => {
-  res.json({
-    status: "ok",
-    message: "Server is running",
-    timestamp: new Date().toISOString(),
+const PORT = process.env.PORT || 3000;
+
+// Body parser: JSON data handle karne ke liye
+app.use(express.json());
+
+// Client folder static serve karna
+app.use(express.static(path.join(__dirname, '../client')));
+
+// Auth routes (/api/auth/register, /api/auth/login, /api/auth/logout)
+app.use('/api/auth', authRoutes);
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Server is running', timestamp: new Date().toISOString() });
+});
+
+// 1. All Users API (Sidebar ke liye)
+app.get('/api/users', async (req, res) => {
+  try {
+    const rows = await all('SELECT id, username, email FROM users');
+    res.json(rows || []);
+  } catch (err) {
+    console.error('[API Error] Users fetch failed:', err.message);
+    res.status(500).json({ error: 'Database error fetching users' });
+  }
+});
+
+// 2. Chat History API (Do users ke purane messages lana)
+app.get('/api/messages/:userId1/:userId2', async (req, res) => {
+  const { userId1, userId2 } = req.params;
+  
+  const query = `
+    SELECT * FROM messages 
+    WHERE (sender_id = ? AND receiver_id = ?) 
+       OR (sender_id = ? AND receiver_id = ?)
+    ORDER BY created_at ASC
+  `;
+
+  try {
+    const rows = await all(query, [userId1, userId2, userId2, userId1]);
+    res.json(rows || []);
+  } catch (err) {
+    console.error('[API Error] Messages fetch failed:', err.message);
+    res.status(500).json({ error: 'Database error fetching messages' });
+  }
+});
+
+// ==========================================
+// REAL-TIME SOCKET.IO LOGIC
+// ==========================================
+const onlineUsers = new Map(); // userId -> socketId
+
+io.on('connection', (socket) => {
+  console.log('[Socket] Client connect hua, ID:', socket.id);
+
+  // User online aane par register karna
+  socket.on('register_user', (userId) => {
+    if (!userId) return;
+    const numId = Number(userId);
+    onlineUsers.set(numId, socket.id);
+    console.log(`[Socket] User ${numId} Online hai (Socket: ${socket.id})`);
+
+    // Sabhi clients ko updated online list bhejna
+    const onlineArray = Array.from(onlineUsers.keys());
+    io.emit('online_users_list', onlineArray);
+  });
+
+  // Private message send karna
+  socket.on('send_private_message', async ({ sender_id, receiver_id, message }) => {
+    try {
+      const sql = `INSERT INTO messages (sender_id, receiver_id, message) VALUES (?, ?, ?)`;
+      const result = await run(sql, [sender_id, receiver_id, message]);
+
+      const savedMessage = {
+        id: result.lastID,
+        sender_id: Number(sender_id),
+        receiver_id: Number(receiver_id),
+        message: message,
+        created_at: new Date().toISOString()
+      };
+
+      // Receiver agar online hai toh use send karo
+      const receiverSocketId = onlineUsers.get(Number(receiver_id));
+      if (receiverSocketId) {
+        io.to(receiverSocketId).emit('receive_private_message', savedMessage);
+      }
+
+      // Sender ko delivery confirmation emit karo
+      socket.emit('message_sent_confirm', savedMessage);
+    } catch (err) {
+      console.error('[Socket Error] Message save failed:', err.message);
+    }
+  });
+
+  // Disconnect hone par
+  socket.on('disconnect', () => {
+    let disconnectedUser = null;
+    for (const [userId, socketId] of onlineUsers.entries()) {
+      if (socketId === socket.id) {
+        disconnectedUser = userId;
+        onlineUsers.delete(userId);
+        break;
+      }
+    }
+
+    if (disconnectedUser) {
+      console.log(`[Socket] User ${disconnectedUser} Offline ho gaya`);
+      io.emit('online_users_list', Array.from(onlineUsers.keys()));
+    }
   });
 });
 
-// Auth routes ko "/api/auth" ke neeche mount karna.
-// Matlab auth.js ka "/login" ab milega "/api/auth/login" par.
-// Ye line 404 wale handler se PEHLE honi chahiye, warna har auth request 404 ho jaayegi.
-app.use("/api/auth", authRoutes);
-
-// Koi bhi galat /api/... route hit kare to 404 JSON error.
-app.use("/api", (req, res) => {
-  res.status(404).json({ error: "API route not found" });
-});
-
-// ------------------------------------------------------------
-// Global error handler (4 parameters wala function error handler hota hai)
-// ------------------------------------------------------------
-app.use((err, req, res, next) => {
-  // Agar client ne kharab/invalid JSON bheja to express.json() error deta hai.
-  // Ye client ki galti hai, isliye 400 bhejte hain, 500 nahi.
-  if (err.type === "entity.parse.failed") {
-    return res.status(400).json({ error: "Invalid JSON in request body." });
-  }
-
-  console.error("Server error:", err);
-  res.status(500).json({ error: "Internal server error" });
-});
-
-// ------------------------------------------------------------
-// Server start
-// ------------------------------------------------------------
-app.listen(PORT, () => {
+// Server Listen
+server.listen(PORT, () => {
+  console.log(`=================================`);
   console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`=================================`);
 });

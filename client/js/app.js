@@ -1,18 +1,19 @@
 // ============================================================
 // File: client/js/app.js
-// Kaam: Page ka UI logic + backend se baat karna.
-//   1. Login / Register tabs switch karna
-//   2. Register aur Login forms ko fetch() se server ko bhejna
-//   3. Login success par user info localStorage me save karke dashboard dikhana
-//   4. Page reload par localStorage check karke user ko logged-in rakhna
-//   5. Logout (localStorage clear + auth screen)
-//   6. Conversation select, search, mock message (pehle jaisa)
+// Kaam: UI logic + Auth (fetch) + Real-time chat (Socket.IO client)
 // ============================================================
+
+// ------------------------------------------------------------
+// SOCKET CONNECTION
+// io() function /socket.io/socket.io.js script se aata hai (index.html me load hoti hai).
+// Ye same server (jahan se page aaya) se WebSocket connection kholta hai.
+// Ye line DOMContentLoaded ke bahar hai taaki socket poore file me sab jagah mile.
+// ------------------------------------------------------------
+const socket = io();
 
 document.addEventListener("DOMContentLoaded", () => {
   // ----------------------------------------------------------
-  // 1. ELEMENTS KO SELECT KARNA
-  //    Baar-baar document.getElementById na likhna pade, isliye variables me store.
+  // 1. ELEMENTS SELECT KARNA
   // ----------------------------------------------------------
   const authView = document.getElementById("auth-view");
   const chatView = document.getElementById("chat-view");
@@ -30,47 +31,67 @@ document.addEventListener("DOMContentLoaded", () => {
   const myName = document.getElementById("my-name");
   const myAvatar = document.getElementById("my-avatar");
   const searchInput = document.getElementById("search-input");
-  const conversationItems = document.querySelectorAll(".conversation-item");
+  const conversationList = document.getElementById("conversation-list");
 
   const chatName = document.getElementById("chat-name");
   const chatAvatar = document.getElementById("chat-avatar");
   const chatStatus = document.getElementById("chat-status");
-  const typingIndicator = document.getElementById("typing-indicator");
   const backBtn = document.getElementById("back-btn");
 
   const messageFeed = document.getElementById("message-feed");
   const messageForm = document.getElementById("message-form");
   const messageInput = document.getElementById("message-input");
+  const messageSendBtn = messageForm.querySelector(".send-btn");
 
-  // localStorage me user info is key (naam) se save hogi.
-  const STORAGE_KEY = "chatUser";
-
-  // Client side par username ka wahi rule jo server par hai (3-20, letters/numbers/_).
+  // ----------------------------------------------------------
+  // 2. APP STATE (jo cheezein app ko yaad rakhni hain)
+  // ----------------------------------------------------------
+  const STORAGE_KEY = "chatUser"; // localStorage ki key
   const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
+  const AVATAR_COLORS = ["avatar-blue", "avatar-pink", "avatar-green", "avatar-orange", "avatar-purple"];
+
+  let currentUser = null; // logged-in user: { id, username, email, ... }
+  let activeChat = null; // jis user se abhi chat khuli hai: { id, username }
+  let allUsers = []; // /api/users se aaye baaki saare users
+  let onlineUserIds = []; // server ne jo online users ki id list bheji
+  const lastMessages = {}; // { userId: { text, time } } sidebar preview ke liye
+  const unreadCounts = {}; // { userId: number } jin chats ke messages abhi padhe nahi
 
   // ----------------------------------------------------------
-  // 2. HELPER FUNCTIONS
+  // 3. HELPER FUNCTIONS
   // ----------------------------------------------------------
 
-  // Abhi ka time "10:42 AM" format me.
-  function getCurrentTime() {
-    return new Date().toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
+  // Database ka time (jaise "2026-11-06 14:30:00", UTC me) ko local "2:30 PM" me badalta hai.
+  // Value na mile to abhi ka time dikhata hai.
+  function formatTime(value) {
+    let date = new Date();
+    if (value) {
+      let text = String(value);
+      if (!text.includes("T")) text = text.replace(" ", "T");
+      // Timezone info na ho to UTC maan lo (SQLite datetime('now') UTC hota hai)
+      if (!/[zZ]$|[+-]\d{2}:?\d{2}$/.test(text)) text += "Z";
+      const parsed = new Date(text);
+      if (!isNaN(parsed.getTime())) date = parsed;
+    }
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   }
 
-  // Message feed ko sabse neeche scroll karta hai.
+  // Feed ko sabse neeche scroll karo taaki naya message dikhe.
   function scrollToBottom() {
     messageFeed.scrollTop = messageFeed.scrollHeight;
   }
 
-  // ---------- localStorage helpers ----------
-  // localStorage browser ka chhota storage hai jo page reload / browser band
-  // karne ke baad bhi data rakhta hai. Ye sirf STRING store karta hai,
-  // isliye object ko JSON.stringify se string banate hain aur JSON.parse se wapas object.
+  // User id se ek fixed avatar color chuno (same user ko hamesha same color).
+  function colorFor(userId) {
+    return AVATAR_COLORS[Number(userId) % AVATAR_COLORS.length];
+  }
 
-  // Saved user wapas padho. Kuch na ho ya data kharab ho to null.
+  // Kya ye user abhi online hai? (ids number/string kuch bhi aayein, Number() se compare)
+  function isOnline(userId) {
+    return onlineUserIds.map(Number).includes(Number(userId));
+  }
+
+  // ---------- localStorage helpers ----------
   function getSavedUser() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -79,124 +100,426 @@ document.addEventListener("DOMContentLoaded", () => {
       return null;
     }
   }
-
   function saveUser(user) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
   }
-
   function clearUser() {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  // ---------- UI state helpers ----------
-
-  // Message dikhane ka helper. type "success" ho to hara color, warna CSS ka default (laal error).
-  // element.style.color = "" karne se inline color hat jaata hai aur CSS wala wapas aa jaata hai.
+  // ---------- Auth UI helpers ----------
   function showMessage(element, text, type) {
     element.textContent = text;
     element.style.color = type === "success" ? "#00a884" : "";
   }
-
-  // Dono message boxes khali karo.
   function clearAuthMessages() {
     showMessage(loginError, "", "error");
     showMessage(loginSuccess, "", "error");
     showMessage(registerError, "", "error");
   }
-
-  // Button ko loading state me daalo (request chal rahi ho tab double click na ho).
   function setLoading(button, isLoading, loadingText, normalText) {
     button.disabled = isLoading;
     button.textContent = isLoading ? loadingText : normalText;
   }
-
-  // Auth screen chhupao aur dashboard dikhao, logged-in user ka naam laga ke.
-  function showDashboard(user) {
-    // textContent use kiya (innerHTML nahi) taaki username me koi HTML/script likha ho
-    // to wo run na ho (XSS attack se bachav).
-    myName.textContent = user.username;
-    myAvatar.textContent = user.username.charAt(0).toUpperCase();
-
-    authView.classList.add("hidden");
-    chatView.classList.remove("hidden");
-    scrollToBottom();
-  }
-
-  // Dashboard chhupao aur wapas auth screen dikhao.
-  function showAuth() {
-    chatView.classList.add("hidden");
-    chatView.classList.remove("chat-open");
-    authView.classList.remove("hidden");
-  }
-
-  // Tab badalne wala function ("login" ya "register").
   function switchTab(tabName) {
-    tabButtons.forEach((btn) => {
-      // Sirf wahi tab "active" jiska data-tab match kare.
-      btn.classList.toggle("active", btn.dataset.tab === tabName);
-    });
-
+    tabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tabName));
     loginForm.classList.toggle("active", tabName === "login");
     registerForm.classList.toggle("active", tabName === "register");
-
     clearAuthMessages();
   }
 
-  // ----------------------------------------------------------
-  // 3. SERVER SE BAAT KARNE WALA FUNCTION (fetch)
-  //    fetch() browser ka built-in function hai jo HTTP request bhejta hai.
-  //    Ye function ek JSON POST request bhejta hai aur hamesha
-  //    { ok, status, data } wala object return karta hai.
-  // ----------------------------------------------------------
+  // JSON POST request bhejne wala helper. Hamesha { ok, status, data } return karta hai.
   async function apiPost(url, body) {
     try {
       const response = await fetch(url, {
-        method: "POST", // HTTP method POST: data server ko bhejna
-        headers: {
-          // Header batata hai ki body JSON format me hai.
-          // Server ka express.json() isi header ko dekh ke body padhta hai.
-          "Content-Type": "application/json",
-        },
-        // JavaScript object ko JSON text me badal ke body me bheja.
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-
-      // Server ka jawab JSON hota hai, usse object me badlo.
-      // Agar jawab JSON nahi hai to data khali object rahega.
       let data = {};
       try {
         data = await response.json();
       } catch (parseError) {
         data = {};
       }
-
-      // response.ok = status code 200-299 ke beech ho to true.
       return { ok: response.ok, status: response.status, data: data };
     } catch (networkError) {
-      // fetch tabhi fail hota hai jab server tak request pahunchi hi nahi
-      // (server band hai, internet nahi hai, etc.). Tab status 0 maante hain.
-      return {
-        ok: false,
-        status: 0,
-        data: { error: "Cannot reach the server. Is it running?" },
-      };
+      return { ok: false, status: 0, data: { error: "Cannot reach the server. Is it running?" } };
     }
   }
 
   // ----------------------------------------------------------
-  // 4. TABS CLICK
+  // 4. CHAT UI FUNCTIONS
   // ----------------------------------------------------------
-  tabButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      switchTab(button.dataset.tab);
-    });
+
+  // Feed me placeholder text dikhane ke liye (jaise "Select a user to start chatting").
+  // class "feed-placeholder" isliye lagayi taaki pehla message aate hi ise hata sakein.
+  function showFeedPlaceholder(text) {
+    messageFeed.textContent = ""; // feed khali karo
+    const wrapper = document.createElement("div");
+    wrapper.className = "date-divider feed-placeholder";
+    const span = document.createElement("span");
+    span.textContent = text;
+    wrapper.appendChild(span);
+    messageFeed.appendChild(wrapper);
+  }
+
+  // Ek message bubble banakar feed me jodta hai.
+  // msg = server ka savedMessage object ({ sender_id, receiver_id, message, created_at ... })
+  // type = "sent" ya "received"
+  function addMessageBubble(msg, type) {
+    // Agar placeholder dikh raha hai to hata do (ab asli message aa gaya)
+    const placeholder = messageFeed.querySelector(".feed-placeholder");
+    if (placeholder) placeholder.remove();
+
+    const bubble = document.createElement("div");
+    bubble.classList.add("message", type);
+
+    const textEl = document.createElement("p");
+    textEl.classList.add("message-text");
+    textEl.textContent = msg.message; // textContent = safe, HTML/script run nahi hoga (XSS se bachav)
+
+    const timeEl = document.createElement("span");
+    timeEl.classList.add("message-time");
+    timeEl.textContent = formatTime(msg.created_at);
+
+    bubble.appendChild(textEl);
+    bubble.appendChild(timeEl);
+    messageFeed.appendChild(bubble);
+    scrollToBottom();
+  }
+
+  // Sidebar ki "last message" preview update karne ke liye data store karo.
+  function setLastMessage(userId, text, createdAt) {
+    lastMessages[userId] = { text: text, time: formatTime(createdAt) };
+  }
+
+  // Chat header (naam, avatar, online/offline) ko activeChat ke hisaab se update karo.
+  function updateChatHeader() {
+    if (!activeChat) {
+      chatName.textContent = "Select a chat";
+      chatAvatar.textContent = "?";
+      chatAvatar.className = "avatar avatar-blue";
+      chatStatus.textContent = "";
+      chatStatus.classList.remove("online");
+      return;
+    }
+    chatName.textContent = activeChat.username;
+    chatAvatar.textContent = activeChat.username.charAt(0).toUpperCase();
+    chatAvatar.className = "avatar " + colorFor(activeChat.id);
+
+    const online = isOnline(activeChat.id);
+    chatStatus.textContent = online ? "online" : "offline";
+    chatStatus.classList.toggle("online", online);
+  }
+
+  // Message input ko enable/disable karo (chat select hone se pehle type nahi kar sakte).
+  function setInputEnabled(enabled) {
+    messageInput.disabled = !enabled;
+    messageSendBtn.disabled = !enabled;
+  }
+
+  // Sidebar me ek user ka item (li) banao.
+  function createUserItem(user) {
+    const li = document.createElement("li");
+    li.className = "conversation-item";
+    if (activeChat && Number(activeChat.id) === Number(user.id)) {
+      li.classList.add("active");
+    }
+    li.dataset.name = user.username;
+
+    // Avatar: pehla letter + (online ho to) hara badge
+    const avatar = document.createElement("div");
+    avatar.className = "avatar " + colorFor(user.id);
+    avatar.textContent = user.username.charAt(0).toUpperCase();
+    if (isOnline(user.id)) {
+      const badge = document.createElement("span");
+      badge.className = "online-badge";
+      avatar.appendChild(badge);
+    }
+
+    const info = document.createElement("div");
+    info.className = "conversation-info";
+
+    // Upar wali line: naam + time
+    const top = document.createElement("div");
+    top.className = "conversation-top";
+    const nameEl = document.createElement("h3");
+    nameEl.textContent = user.username;
+    const timeEl = document.createElement("span");
+    timeEl.className = "conversation-time";
+    timeEl.textContent = lastMessages[user.id] ? lastMessages[user.id].time : "";
+    top.appendChild(nameEl);
+    top.appendChild(timeEl);
+
+    // Neeche wali line: last message preview + unread count
+    const last = document.createElement("p");
+    last.className = "conversation-last";
+    last.textContent = lastMessages[user.id] ? lastMessages[user.id].text : "Tap to start chatting";
+
+    const unread = unreadCounts[user.id] || 0;
+    if (unread > 0) {
+      const unreadBadge = document.createElement("span");
+      unreadBadge.textContent = unread;
+      // Chhota hara gol badge (inline style, taaki alag CSS na likhni pade)
+      unreadBadge.style.cssText =
+        "background:#00a884;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:8px;";
+      last.appendChild(unreadBadge);
+    }
+
+    info.appendChild(top);
+    info.appendChild(last);
+    li.appendChild(avatar);
+    li.appendChild(info);
+
+    // Is user par click = isse chat open karo
+    li.addEventListener("click", () => selectChat(user));
+    return li;
+  }
+
+  // Sidebar ki poori list dobara banao (users load, online change, naya message, search ke time).
+  function renderUserList() {
+    conversationList.textContent = "";
+
+    const keyword = searchInput.value.toLowerCase().trim();
+    const visibleUsers = allUsers.filter((user) => user.username.toLowerCase().includes(keyword));
+
+    if (visibleUsers.length === 0) {
+      const empty = document.createElement("li");
+      empty.style.cssText = "padding:20px;text-align:center;color:#667781;font-size:14px;";
+      empty.textContent = allUsers.length === 0 ? "No other users registered yet." : "No users found.";
+      conversationList.appendChild(empty);
+      return;
+    }
+
+    visibleUsers.forEach((user) => conversationList.appendChild(createUserItem(user)));
+  }
+
+  // ----------------------------------------------------------
+  // 5. USERS AUR CHAT HISTORY LOAD KARNA (GET requests)
+  // ----------------------------------------------------------
+
+  // GET /api/users: saare registered users laao aur apne aap ko list se hata do.
+  async function loadUsers() {
+    try {
+      const response = await fetch("/api/users");
+      if (!response.ok) throw new Error("Users load failed");
+      const data = await response.json();
+
+      // Server array bheje ya { users: [...] }, dono chalega.
+      const users = Array.isArray(data) ? data : data.users || [];
+
+      allUsers = users
+        .filter((user) => Number(user.id) !== Number(currentUser.id)) // khud ko hatao
+        .map((user) => ({ id: user.id, username: user.username || user.name || user.email || "User " + user.id }));
+
+      renderUserList();
+    } catch (error) {
+      conversationList.textContent = "";
+      const failed = document.createElement("li");
+      failed.style.cssText = "padding:20px;text-align:center;color:#d93025;font-size:14px;";
+      failed.textContent = "Could not load users.";
+      conversationList.appendChild(failed);
+    }
+  }
+
+  // GET /api/messages/:userId1/:userId2: do users ke beech purane messages laao.
+  async function loadHistory(user) {
+    const requestedId = user.id; // yaad rakho kis user ki history maangi thi
+    try {
+      const response = await fetch("/api/messages/" + currentUser.id + "/" + user.id);
+      if (!response.ok) throw new Error("History load failed");
+      const data = await response.json();
+      const messages = Array.isArray(data) ? data : data.messages || [];
+
+      // Agar history aate-aate user ne dusri chat khol li, to ye purana jawab ignore karo
+      // (warna galat chat me messages dikh jaate).
+      if (!activeChat || Number(activeChat.id) !== Number(requestedId)) return;
+
+      messageFeed.textContent = "";
+
+      if (messages.length === 0) {
+        showFeedPlaceholder("No messages yet. Say hi!");
+        return;
+      }
+
+      // Har purane message ke liye bubble: mera bheja = sent, baaki = received
+      messages.forEach((msg) => {
+        const type = Number(msg.sender_id) === Number(currentUser.id) ? "sent" : "received";
+        addMessageBubble(msg, type);
+      });
+
+      // Sidebar preview me aakhri message dikhao
+      const lastMsg = messages[messages.length - 1];
+      const prefix = Number(lastMsg.sender_id) === Number(currentUser.id) ? "You: " : "";
+      setLastMessage(user.id, prefix + lastMsg.message, lastMsg.created_at);
+      renderUserList();
+    } catch (error) {
+      if (activeChat && Number(activeChat.id) === Number(requestedId)) {
+        showFeedPlaceholder("Could not load messages.");
+      }
+    }
+  }
+
+  // Sidebar se kisi user par click: use active chat partner banao.
+  function selectChat(user) {
+    activeChat = user;
+    unreadCounts[user.id] = 0; // is chat ke unread messages ab padh liye
+
+    updateChatHeader();
+    setInputEnabled(true);
+    showFeedPlaceholder("Loading messages...");
+    renderUserList(); // active highlight + unread badge hatane ke liye
+
+    chatView.classList.add("chat-open"); // mobile par chat area dikhao
+    loadHistory(user);
+    messageInput.focus();
+  }
+
+  // ----------------------------------------------------------
+  // 6. SESSION START / END (login ke baad aur logout par)
+  // ----------------------------------------------------------
+
+  // Login (ya page reload par saved user) ke baad ye chalta hai.
+  function startSession(user) {
+    currentUser = user;
+
+    // State reset karo (pichle user ka data bacha na rahe)
+    activeChat = null;
+    allUsers = [];
+    onlineUserIds = [];
+    Object.keys(lastMessages).forEach((key) => delete lastMessages[key]);
+    Object.keys(unreadCounts).forEach((key) => delete unreadCounts[key]);
+    searchInput.value = "";
+
+    // Dashboard dikhao
+    myName.textContent = user.username;
+    myAvatar.textContent = user.username.charAt(0).toUpperCase();
+    authView.classList.add("hidden");
+    chatView.classList.remove("hidden");
+    chatView.classList.remove("chat-open");
+
+    updateChatHeader();
+    setInputEnabled(false);
+    showFeedPlaceholder("Select a user to start chatting");
+
+    // Socket server ko batao "main ye user hoon" (register_user event).
+    // Server isse mapping banata hai: user id -> socket id, taaki private message sahi bande tak pahunche.
+    if (socket.connected) {
+      socket.emit("register_user", currentUser.id);
+    } else {
+      // Logout ke baad socket disconnected hota hai, isliye dobara connect karo.
+      // Connect hote hi neeche wala "connect" listener register_user emit kar dega.
+      socket.connect();
+    }
+
+    loadUsers(); // sidebar me baaki users laao
+  }
+
+  // Logout par: socket band, state clear, localStorage clear, login screen.
+  async function endSession() {
+    await apiPost("/api/auth/logout", {}); // server ko batao (fail ho to bhi koi dikkat nahi)
+
+    socket.disconnect(); // WebSocket connection band; server is user ko offline maan lega
+
+    currentUser = null;
+    activeChat = null;
+    allUsers = [];
+    onlineUserIds = [];
+
+    clearUser(); // localStorage se user hatao
+    conversationList.textContent = "";
+    messageFeed.textContent = "";
+
+    clearAuthMessages();
+    switchTab("login");
+    chatView.classList.add("hidden");
+    chatView.classList.remove("chat-open");
+    authView.classList.remove("hidden");
+  }
+
+  // ----------------------------------------------------------
+  // 7. SOCKET.IO EVENT LISTENERS (server se aane wale events)
+  // ----------------------------------------------------------
+
+  // "connect": socket server se jud gaya (pehli baar ya network tootne ke baad auto-reconnect par).
+  // Reconnect par server purani mapping bhool chuka hota hai, isliye dobara register karna zaroori hai.
+  socket.on("connect", () => {
+    if (currentUser) {
+      socket.emit("register_user", currentUser.id);
+    }
+  });
+
+  // "online_users_list": server ne abhi online users ki id array bheji.
+  // Isse sidebar ke hare badge aur chat header ka online/offline status update hota hai.
+  socket.on("online_users_list", (userIds) => {
+    onlineUserIds = Array.isArray(userIds) ? userIds : [];
+    renderUserList();
+    updateChatHeader();
+  });
+
+  // "receive_private_message": kisi ne mujhe message bheja.
+  socket.on("receive_private_message", (msg) => {
+    const fromId = msg.sender_id;
+    const isOpenChat = activeChat && Number(activeChat.id) === Number(fromId);
+
+    if (isOpenChat) {
+      // Wahi chat khuli hai to seedha bubble add karo (real-time)
+      addMessageBubble(msg, "received");
+    } else {
+      // Chat band hai (ya dusri chat khuli hai) to unread count badhao
+      unreadCounts[fromId] = (unreadCounts[fromId] || 0) + 1;
+    }
+
+    setLastMessage(fromId, msg.message, msg.created_at);
+    renderUserList();
+  });
+
+  // "message_sent_confirm": server ne confirm kiya ki mera message save ho gaya aur bhej diya gaya.
+  // Bubble yahin dikhate hain (send par nahi) taaki sirf wahi message dikhe jo sach me save hua.
+  socket.on("message_sent_confirm", (msg) => {
+    const toId = msg.receiver_id;
+    if (activeChat && Number(activeChat.id) === Number(toId)) {
+      addMessageBubble(msg, "sent");
+    }
+    setLastMessage(toId, "You: " + msg.message, msg.created_at);
+    renderUserList();
   });
 
   // ----------------------------------------------------------
-  // 5. REGISTER FORM SUBMIT -> POST /api/auth/register
+  // 8. MESSAGE BHEJNA (send_private_message emit)
   // ----------------------------------------------------------
+  messageForm.addEventListener("submit", (event) => {
+    event.preventDefault(); // page reload rokna
+
+    const text = messageInput.value.trim();
+    if (text === "" || !activeChat || !currentUser) return;
+
+    if (!socket.connected) {
+      alert("Server se connection nahi hai. Thodi der baad try karo.");
+      return;
+    }
+
+    // Server ko event bhejo. Payload ke 3 fields: kisne, kisko, kya message.
+    socket.emit("send_private_message", {
+      sender_id: currentUser.id,
+      receiver_id: activeChat.id,
+      message: text,
+    });
+
+    messageInput.value = "";
+    messageInput.focus();
+  });
+
+  // ----------------------------------------------------------
+  // 9. AUTH FORMS (Register / Login / Logout)
+  // ----------------------------------------------------------
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => switchTab(button.dataset.tab));
+  });
+
+  // Register: POST /api/auth/register
   registerForm.addEventListener("submit", async (event) => {
-    // preventDefault: form ka default behaviour (page reload) rok deta hai.
     event.preventDefault();
 
     const username = document.getElementById("register-username").value.trim();
@@ -204,19 +527,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const password = document.getElementById("register-password").value;
     const confirm = document.getElementById("register-confirm").value;
 
-    // ---- Client side validation (server request bachane ke liye) ----
-    // Dhyan rahe: ye sirf user ki suvidha ke liye hai. Asli validation server par
-    // hoti hai, kyunki koi bhi browser ko bypass karke seedha request bhej sakta hai.
     if (!username || !email || !password || !confirm) {
       showMessage(registerError, "Please fill all the fields.", "error");
       return;
     }
     if (!USERNAME_REGEX.test(username)) {
-      showMessage(
-        registerError,
-        "Username must be 3-20 characters (letters, numbers, underscore only).",
-        "error"
-      );
+      showMessage(registerError, "Username must be 3-20 characters (letters, numbers, underscore only).", "error");
       return;
     }
     if (password.length < 6) {
@@ -230,21 +546,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     showMessage(registerError, "", "error");
     setLoading(registerBtn, true, "Creating account...", "Create Account");
-
-    // Server ko request bhejo. "await" ka matlab jawab aane tak ruko.
-    // confirm password server ko nahi bhejte, wo sirf frontend ka check hai.
     const result = await apiPost("/api/auth/register", { username, email, password });
-
     setLoading(registerBtn, false, "Creating account...", "Create Account");
 
     if (!result.ok) {
-      // Server ne jo error bheja wahi dikhao (jaise "Username or email already exists.")
       showMessage(registerError, result.data.error || "Registration failed.", "error");
       return;
     }
 
-    // Register successful: form saaf karo, Login tab par jao,
-    // email pehle se bhar do aur hara success message dikhao.
     registerForm.reset();
     switchTab("login");
     document.getElementById("login-email").value = email;
@@ -252,13 +561,10 @@ document.addEventListener("DOMContentLoaded", () => {
     document.getElementById("login-password").focus();
   });
 
-  // ----------------------------------------------------------
-  // 6. LOGIN FORM SUBMIT -> POST /api/auth/login
-  // ----------------------------------------------------------
+  // Login: POST /api/auth/login
   loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
 
-    // Input ka id "login-email" hai par usme email YA username dono chalte hain.
     const identifier = document.getElementById("login-email").value.trim();
     const password = document.getElementById("login-password").value;
 
@@ -270,147 +576,42 @@ document.addEventListener("DOMContentLoaded", () => {
     showMessage(loginError, "", "error");
     showMessage(loginSuccess, "", "error");
     setLoading(loginBtn, true, "Logging in...", "Login");
-
     const result = await apiPost("/api/auth/login", { identifier, password });
-
     setLoading(loginBtn, false, "Logging in...", "Login");
 
     if (!result.ok) {
-      // Galat password par yahan "Invalid email/username or password." dikhega (401).
       showMessage(loginError, result.data.error || "Login failed.", "error");
       return;
     }
 
-    // Login successful: server ne user ka safe data bheja (password hash ke bina).
-    // Use localStorage me save karo taaki page reload par bhi login bana rahe.
-    saveUser(result.data.user);
-
-    // Password field saaf karo (security ke liye) aur dashboard dikhao.
+    saveUser(result.data.user); // localStorage me save
     loginForm.reset();
-    showDashboard(result.data.user);
+    startSession(result.data.user); // dashboard + socket register + users load
   });
 
-  // ----------------------------------------------------------
-  // 7. LOGOUT
-  // ----------------------------------------------------------
-  logoutBtn.addEventListener("click", async () => {
-    // Server ko logout request bhejo. Agar fail bhi ho jaye to koi dikkat nahi,
-    // kyunki asli logout browser ka localStorage clear karna hai.
-    await apiPost("/api/auth/logout", {});
-
-    clearUser();
-    clearAuthMessages();
-    switchTab("login");
-    showAuth();
-  });
+  // Logout button
+  logoutBtn.addEventListener("click", endSession);
 
   // ----------------------------------------------------------
-  // 8. CONVERSATION SELECT KARNA (pehle jaisa)
+  // 10. BAAKI UI EVENTS
   // ----------------------------------------------------------
-  conversationItems.forEach((item) => {
-    item.addEventListener("click", () => {
-      // Pehle sabse "active" hatao, phir clicked item par lagao
-      conversationItems.forEach((i) => i.classList.remove("active"));
-      item.classList.add("active");
 
-      // data-name aur data-status attributes se info nikali
-      const name = item.dataset.name;
-      const status = item.dataset.status;
-
-      // Chat header me naam aur avatar ka letter update karo
-      chatName.textContent = name;
-      chatAvatar.textContent = name.charAt(0);
-
-      // Sidebar avatar ki color wali class (jaise "avatar-blue") dhundh ke
-      // chat header ke avatar par bhi laga do.
-      const sidebarAvatar = item.querySelector(".avatar");
-      const colorClass = Array.from(sidebarAvatar.classList).find((cls) =>
-        cls.startsWith("avatar-")
-      );
-      chatAvatar.className = "avatar " + (colorClass || "avatar-blue");
-
-      // Online / offline status update
-      chatStatus.textContent = status;
-      chatStatus.classList.toggle("online", status === "online");
-
-      // Mobile par chat area dikhane ke liye class lagao
-      chatView.classList.add("chat-open");
-    });
-  });
-
-  // Mobile ka back button: wapas conversation list
+  // Mobile ka back button: wapas users list
   backBtn.addEventListener("click", () => {
     chatView.classList.remove("chat-open");
   });
 
-  // ----------------------------------------------------------
-  // 9. SEARCH BAR: naam type karne par list filter hogi
-  // ----------------------------------------------------------
-  searchInput.addEventListener("input", () => {
-    const keyword = searchInput.value.toLowerCase().trim();
-
-    conversationItems.forEach((item) => {
-      const name = item.dataset.name.toLowerCase();
-      item.style.display = name.includes(keyword) ? "flex" : "none";
-    });
-  });
+  // Search bar: type karte hi list filter (renderUserList search text khud padh leta hai)
+  searchInput.addEventListener("input", renderUserList);
 
   // ----------------------------------------------------------
-  // 10. MESSAGE BHEJNA (abhi bhi mock, Socket.IO aage ke phase me)
-  // ----------------------------------------------------------
-
-  // Ek naya message bubble banakar feed me add karta hai.
-  // type = "sent" (mera) ya "received" (samne wale ka).
-  function addMessage(text, type) {
-    const bubble = document.createElement("div");
-    bubble.classList.add("message", type);
-
-    const textEl = document.createElement("p");
-    textEl.classList.add("message-text");
-    textEl.textContent = text; // textContent = safe (HTML run nahi hota)
-
-    const timeEl = document.createElement("span");
-    timeEl.classList.add("message-time");
-    timeEl.textContent = getCurrentTime();
-
-    bubble.appendChild(textEl);
-    bubble.appendChild(timeEl);
-    messageFeed.appendChild(bubble);
-
-    scrollToBottom();
-  }
-
-  messageForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-
-    const text = messageInput.value.trim();
-    if (text === "") {
-      return;
-    }
-
-    addMessage(text, "sent");
-    messageInput.value = "";
-    messageInput.focus();
-
-    // Mock auto-reply: typing indicator dikhao, 1.5 sec baad reply do.
-    chatStatus.classList.add("hidden");
-    typingIndicator.classList.remove("hidden");
-
-    setTimeout(() => {
-      typingIndicator.classList.add("hidden");
-      chatStatus.classList.remove("hidden");
-      addMessage("Thik hai, mil gaya message! (mock reply)", "received");
-    }, 1500);
-  });
-
-  // ----------------------------------------------------------
-  // 11. PAGE LOAD PAR: kya user pehle se logged-in hai?
-  //     localStorage me user mila to seedha dashboard, warna login screen.
+  // 11. PAGE LOAD: user pehle se logged-in hai?
   // ----------------------------------------------------------
   const savedUser = getSavedUser();
-  if (savedUser && savedUser.username) {
-    showDashboard(savedUser);
+  if (savedUser && savedUser.id && savedUser.username) {
+    startSession(savedUser); // reload par bhi chat wapas chalu
   } else {
-    showAuth();
+    chatView.classList.add("hidden");
+    authView.classList.remove("hidden");
   }
 });
