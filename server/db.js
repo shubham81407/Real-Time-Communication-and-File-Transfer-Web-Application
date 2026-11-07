@@ -47,6 +47,37 @@ db.serialize(() => {
     FOREIGN KEY(sender_id) REFERENCES users(id),
     FOREIGN KEY(receiver_id) REFERENCES users(id)
   )`);
+
+    // 3. Groups table
+  db.run(`CREATE TABLE IF NOT EXISTS groups (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_by INTEGER NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY(created_by) REFERENCES users(id)
+  )`);
+
+  // 4. Group Members table
+  db.run(`CREATE TABLE IF NOT EXISTS group_members (
+    group_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    joined_at TEXT DEFAULT (datetime('now')),
+    PRIMARY KEY(group_id, user_id),
+    FOREIGN KEY(group_id) REFERENCES groups(id),
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  )`);
+
+  // 5. Group Messages table
+  db.run(`CREATE TABLE IF NOT EXISTS group_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id INTEGER NOT NULL,
+    sender_id INTEGER NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY(group_id) REFERENCES groups(id),
+    FOREIGN KEY(sender_id) REFERENCES users(id)
+  )`);
+
 });
 
 module.exports = { db, run, get, all };

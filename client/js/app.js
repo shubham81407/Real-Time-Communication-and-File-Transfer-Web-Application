@@ -52,6 +52,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let currentUser = null; // logged-in user: { id, username, email, ... }
   let activeChat = null; // jis user se abhi chat khuli hai: { id, username }
+  let activeGroup = null; // Agar group select ho: { id, name }
+  let userGroups = []; // User ke saare groups
   let allUsers = []; // /api/users se aaye baaki saare users
   let onlineUserIds = []; // server ne jo online users ki id list bheji
   const lastMessages = {}; // { userId: { text, time } } sidebar preview ke liye
@@ -280,6 +282,36 @@ document.addEventListener("DOMContentLoaded", () => {
   // Sidebar ki poori list dobara banao (users load, online change, naya message, search ke time).
   function renderUserList() {
     conversationList.textContent = "";
+    // Render Groups First
+    if (userGroups && userGroups.length > 0) {
+      const groupHeader = document.createElement("li");
+      groupHeader.style.cssText = "padding: 8px 12px; font-size: 12px; font-weight: bold; color: #8696a0; text-transform: uppercase;";
+      groupHeader.textContent = "Groups";
+      conversationList.appendChild(groupHeader);
+
+      userGroups.forEach(group => {
+        const li = document.createElement("li");
+        li.className = "conversation-item";
+        if (activeGroup && activeGroup.id === group.id) li.classList.add("active");
+
+        li.innerHTML = `
+          <div class="avatar avatar-purple">👥</div>
+          <div class="conversation-info">
+            <div class="conversation-top">
+              <h3>${group.name}</h3>
+            </div>
+            <p class="conversation-last">Tap to open group chat</p>
+          </div>
+        `;
+        li.addEventListener("click", () => selectGroupChat(group));
+        conversationList.appendChild(li);
+      });
+
+      const userHeader = document.createElement("li");
+      userHeader.style.cssText = "padding: 8px 12px; font-size: 12px; font-weight: bold; color: #8696a0; text-transform: uppercase;";
+      userHeader.textContent = "Direct Messages";
+      conversationList.appendChild(userHeader);
+    }
 
     const keyword = searchInput.value.toLowerCase().trim();
     const visibleUsers = allUsers.filter((user) => user.username.toLowerCase().includes(keyword));
@@ -391,6 +423,8 @@ document.addEventListener("DOMContentLoaded", () => {
     Object.keys(lastMessages).forEach((key) => delete lastMessages[key]);
     Object.keys(unreadCounts).forEach((key) => delete unreadCounts[key]);
     searchInput.value = "";
+    activeGroup = null;
+    userGroups = [];
 
     // Dashboard dikhao
     myName.textContent = user.username;
@@ -414,6 +448,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     loadUsers(); // sidebar me baaki users laao
+    loadUserGroups();
   }
 
   // Logout par: socket band, state clear, localStorage clear, login screen.
@@ -493,22 +528,40 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault(); // page reload rokna
 
     const text = messageInput.value.trim();
-    if (text === "" || !activeChat || !currentUser) return;
+    if (text === "" || (!activeChat && !activeGroup) || !currentUser) return;
 
     if (!socket.connected) {
-      alert("Server se connection nahi hai. Thodi der baad try karo.");
+      alert("Server se connection nahi hai.");
       return;
     }
 
-    // Server ko event bhejo. Payload ke 3 fields: kisne, kisko, kya message.
-    socket.emit("send_private_message", {
-      sender_id: currentUser.id,
-      receiver_id: activeChat.id,
-      message: text,
-    });
+    // 1. Agar Group Chat open hai
+    if (activeGroup) {
+      socket.emit("send_group_message", {
+        group_id: activeGroup.id,
+        sender_id: currentUser.id,
+        message: text
+      });
+    } 
+    // 2. Agar Private One-to-One Chat open hai
+    else if (activeChat) {
+      socket.emit("send_private_message", {
+        sender_id: currentUser.id,
+        receiver_id: activeChat.id,
+        message: text
+      });
+    }
 
     messageInput.value = "";
     messageInput.focus();
+  });
+
+  // Group message receive hone par
+  socket.on("receive_group_message", (msg) => {
+    if (activeGroup && Number(activeGroup.id) === Number(msg.group_id)) {
+      const type = Number(msg.sender_id) === Number(currentUser.id) ? "sent" : "received";
+      addGroupMessageBubble(msg, type);
+    }
   });
 
   // ----------------------------------------------------------
@@ -603,6 +656,127 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Search bar: type karte hi list filter (renderUserList search text khud padh leta hai)
   searchInput.addEventListener("input", renderUserList);
+
+  // ==========================================
+// GROUP CHAT MANAGEMENT LOGIC
+// ==========================================
+
+// Create Group Button Event Listener
+const createGroupBtn = document.getElementById("create-group-btn");
+if (createGroupBtn) {
+  createGroupBtn.addEventListener("click", async () => {
+    if (!currentUser) return;
+
+    const groupName = prompt("Naye Group ka naam likhein:");
+    if (!groupName || groupName.trim() === "") return;
+
+    try {
+      // Saare registered users ko default add kar rahe hain (demo testing ke liye)
+      const memberIds = allUsers.map(u => u.id);
+      memberIds.push(currentUser.id);
+
+      const res = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: groupName.trim(),
+          created_by: currentUser.id,
+          member_ids: memberIds
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Group creation failed");
+
+      alert(`Group "${groupName}" successfully ban gaya!`);
+      loadUserGroups(); // Groups list refresh karein
+    } catch (err) {
+      alert("Error creating group: " + err.message);
+    }
+  });
+}
+
+// User ke groups load karna
+async function loadUserGroups() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch(`/api/users/${currentUser.id}/groups`);
+    userGroups = await res.json();
+    renderUserList(); // Sidebar me users ke sath groups bhi render honge
+  } catch (err) {
+    console.error("Groups load error:", err);
+  }
+}
+
+
+
+// Group select karke chat kholna
+async function selectGroupChat(group) {
+  activeChat = null; // Private chat deselect
+  activeGroup = group; // Group active
+
+  chatName.textContent = "👥 " + group.name;
+  chatAvatar.textContent = "👥";
+  chatAvatar.className = "avatar avatar-purple";
+  chatStatus.textContent = "Group Chat";
+  chatStatus.classList.remove("online");
+
+  setInputEnabled(true);
+  showFeedPlaceholder("Group messages load ho rahe hain...");
+  renderUserList();
+
+  // Socket ko room me join karana (Multicast network room)
+  socket.emit("join_group", group.id);
+
+  // Group messages fetch karna
+  try {
+    const res = await fetch(`/api/groups/${group.id}/messages`);
+    const messages = await res.json();
+
+    messageFeed.textContent = "";
+    if (!messages || messages.length === 0) {
+      showFeedPlaceholder("Is group me abhi koi message nahi hai. Pehla message bhejein!");
+      return;
+    }
+
+    messages.forEach(msg => {
+      const type = Number(msg.sender_id) === Number(currentUser.id) ? "sent" : "received";
+      addGroupMessageBubble(msg, type);
+    });
+    scrollToBottom();
+  } catch (err) {
+    showFeedPlaceholder("Group messages load nahi ho paaye.");
+  }
+}
+
+// Group ke message bubble me sender ka naam dikhana
+function addGroupMessageBubble(msg, type) {
+  const placeholder = messageFeed.querySelector(".feed-placeholder");
+  if (placeholder) placeholder.remove();
+
+  const bubble = document.createElement("div");
+  bubble.classList.add("message", type);
+
+  if (type === "received") {
+    const senderTag = document.createElement("small");
+    senderTag.style.cssText = "display:block;font-size:11px;font-weight:bold;color:#00a884;margin-bottom:2px;";
+    senderTag.textContent = msg.sender_name || "User " + msg.sender_id;
+    bubble.appendChild(senderTag);
+  }
+
+  const textEl = document.createElement("p");
+  textEl.classList.add("message-text");
+  textEl.textContent = msg.message;
+
+  const timeEl = document.createElement("span");
+  timeEl.classList.add("message-time");
+  timeEl.textContent = formatTime(msg.created_at);
+
+  bubble.appendChild(textEl);
+  bubble.appendChild(timeEl);
+  messageFeed.appendChild(bubble);
+  scrollToBottom();
+}
 
   // ----------------------------------------------------------
   // 11. PAGE LOAD: user pehle se logged-in hai?
