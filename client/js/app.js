@@ -166,26 +166,50 @@ document.addEventListener("DOMContentLoaded", () => {
     messageFeed.appendChild(wrapper);
   }
 
+  // Rich message ko render karne ke liye helper.
+  // Agar message file share payload hai, to HTML ko allow karna padega,
+  // warna normal text message ko safe way me render karna chahiye.
+  function renderMessageContent(messageText) {
+    const raw = String(messageText || "").trim();
+    if (!raw) {
+      const empty = document.createElement("p");
+      empty.classList.add("message-text");
+      empty.textContent = "";
+      return empty;
+    }
+
+    const isRichPayload = raw.startsWith("<") && (raw.includes("href=") || raw.includes("<img") || raw.includes("file-message"));
+
+    if (isRichPayload) {
+      const wrap = document.createElement("div");
+      wrap.className = "rich-message";
+      wrap.innerHTML = raw;
+      return wrap;
+    }
+
+    const textEl = document.createElement("p");
+    textEl.classList.add("message-text");
+    textEl.textContent = raw;
+    return textEl;
+  }
+
   // Ek message bubble banakar feed me jodta hai.
   // msg = server ka savedMessage object ({ sender_id, receiver_id, message, created_at ... })
   // type = "sent" ya "received"
   function addMessageBubble(msg, type) {
-    // Agar placeholder dikh raha hai to hata do (ab asli message aa gaya)
     const placeholder = messageFeed.querySelector(".feed-placeholder");
     if (placeholder) placeholder.remove();
 
     const bubble = document.createElement("div");
     bubble.classList.add("message", type);
 
-    const textEl = document.createElement("p");
-    textEl.classList.add("message-text");
-    textEl.textContent = msg.message; // textContent = safe, HTML/script run nahi hoga (XSS se bachav)
+    const contentEl = renderMessageContent(msg.message);
 
     const timeEl = document.createElement("span");
     timeEl.classList.add("message-time");
     timeEl.textContent = formatTime(msg.created_at);
 
-    bubble.appendChild(textEl);
+    bubble.appendChild(contentEl);
     bubble.appendChild(timeEl);
     messageFeed.appendChild(bubble);
     scrollToBottom();
@@ -657,135 +681,185 @@ document.addEventListener("DOMContentLoaded", () => {
   // Search bar: type karte hi list filter (renderUserList search text khud padh leta hai)
   searchInput.addEventListener("input", renderUserList);
 
-  // ==========================================
-// GROUP CHAT MANAGEMENT LOGIC
-// ==========================================
+  const fileInput = document.getElementById("file-input");
 
-// Create Group Button Event Listener
-const createGroupBtn = document.getElementById("create-group-btn");
-if (createGroupBtn) {
-  createGroupBtn.addEventListener("click", async () => {
-    if (!currentUser) return;
-
-    const groupName = prompt("Naye Group ka naam likhein:");
-    if (!groupName || groupName.trim() === "") return;
-
-    try {
-      // Saare registered users ko default add kar rahe hain (demo testing ke liye)
-      const memberIds = allUsers.map(u => u.id);
-      memberIds.push(currentUser.id);
-
-      const res = await fetch("/api/groups", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: groupName.trim(),
-          created_by: currentUser.id,
-          member_ids: memberIds
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Group creation failed");
-
-      alert(`Group "${groupName}" successfully ban gaya!`);
-      loadUserGroups(); // Groups list refresh karein
-    } catch (err) {
-      alert("Error creating group: " + err.message);
-    }
-  });
-}
-
-// User ke groups load karna
-async function loadUserGroups() {
-  if (!currentUser) return;
-  try {
-    const res = await fetch(`/api/users/${currentUser.id}/groups`);
-    userGroups = await res.json();
-    renderUserList(); // Sidebar me users ke sath groups bhi render honge
-  } catch (err) {
-    console.error("Groups load error:", err);
-  }
-}
-
-
-
-// Group select karke chat kholna
-async function selectGroupChat(group) {
-  activeChat = null; // Private chat deselect
-  activeGroup = group; // Group active
-
-  chatName.textContent = "👥 " + group.name;
-  chatAvatar.textContent = "👥";
-  chatAvatar.className = "avatar avatar-purple";
-  chatStatus.textContent = "Group Chat";
-  chatStatus.classList.remove("online");
-
-  setInputEnabled(true);
-  showFeedPlaceholder("Group messages load ho rahe hain...");
-  renderUserList();
-
-  // Socket ko room me join karana (Multicast network room)
-  socket.emit("join_group", group.id);
-
-  // Group messages fetch karna
-  try {
-    const res = await fetch(`/api/groups/${group.id}/messages`);
-    const messages = await res.json();
-
-    messageFeed.textContent = "";
-    if (!messages || messages.length === 0) {
-      showFeedPlaceholder("Is group me abhi koi message nahi hai. Pehla message bhejein!");
+  // File upload handler: selected file ko server par upload karke message ke roop me bhej do.
+  async function handleFileSelection(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file || (!activeChat && !activeGroup) || !currentUser) {
+      if (fileInput) fileInput.value = "";
       return;
     }
 
-    messages.forEach(msg => {
-      const type = Number(msg.sender_id) === Number(currentUser.id) ? "sent" : "received";
-      addGroupMessageBubble(msg, type);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    showFeedPlaceholder("File upload ho rahi hai...");
+
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "File upload failed");
+      }
+
+      const fileUrl = data.fileUrl || "";
+      const fileName = data.fileName || file.name;
+      const fileSize = data.fileSize || file.size;
+      const fileType = data.fileType || file.type || "application/octet-stream";
+      const isImage = fileType.startsWith("image/");
+
+      const fileHtml = isImage
+        ? `<div class="file-message"><img src="${fileUrl}" alt="${fileName}" style="max-width:220px;max-height:180px;border-radius:8px;display:block;margin-bottom:8px;" /><a href="${fileUrl}" target="_blank" download style="color:#00a884;text-decoration:underline;">📁 ${fileName}</a></div>`
+        : `<div class="file-message"><a href="${fileUrl}" target="_blank" download style="color:#00a884;text-decoration:underline;">📄 ${fileName}</a><div style="font-size:12px;color:#8696a0;">${(fileSize / 1024).toFixed(1)} KB</div></div>`;
+
+      if (activeGroup) {
+        socket.emit("send_group_message", {
+          group_id: activeGroup.id,
+          sender_id: currentUser.id,
+          message: fileHtml
+        });
+      } else if (activeChat) {
+        socket.emit("send_private_message", {
+          sender_id: currentUser.id,
+          receiver_id: activeChat.id,
+          message: fileHtml
+        });
+      }
+    } catch (error) {
+      alert("File upload error: " + error.message);
+    } finally {
+      if (fileInput) fileInput.value = "";
+    }
+  }
+
+  if (fileInput) {
+    fileInput.addEventListener("change", handleFileSelection);
+  }
+
+  // ==========================================
+  // GROUP CHAT MANAGEMENT LOGIC
+  // ==========================================
+
+  const createGroupBtn = document.getElementById("create-group-btn");
+  if (createGroupBtn) {
+    createGroupBtn.addEventListener("click", async () => {
+      if (!currentUser) return;
+
+      const groupName = prompt("Naye Group ka naam likhein:");
+      if (!groupName || groupName.trim() === "") return;
+
+      try {
+        const memberIds = allUsers.map((u) => u.id);
+        memberIds.push(currentUser.id);
+
+        const res = await fetch("/api/groups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: groupName.trim(),
+            created_by: currentUser.id,
+            member_ids: memberIds
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Group creation failed");
+
+        alert(`Group "${groupName}" successfully ban gaya!`);
+        loadUserGroups();
+      } catch (err) {
+        alert("Error creating group: " + err.message);
+      }
     });
+  }
+
+  async function loadUserGroups() {
+    if (!currentUser) return;
+    try {
+      const res = await fetch(`/api/users/${currentUser.id}/groups`);
+      userGroups = await res.json();
+      renderUserList();
+    } catch (err) {
+      console.error("Groups load error:", err);
+    }
+  }
+
+  async function selectGroupChat(group) {
+    activeChat = null;
+    activeGroup = group;
+
+    chatName.textContent = "👥 " + group.name;
+    chatAvatar.textContent = "👥";
+    chatAvatar.className = "avatar avatar-purple";
+    chatStatus.textContent = "Group Chat";
+    chatStatus.classList.remove("online");
+
+    setInputEnabled(true);
+    showFeedPlaceholder("Group messages load ho rahe hain...");
+    renderUserList();
+
+    socket.emit("join_group", group.id);
+
+    try {
+      const res = await fetch(`/api/groups/${group.id}/messages`);
+      const messages = await res.json();
+
+      messageFeed.textContent = "";
+      if (!messages || messages.length === 0) {
+        showFeedPlaceholder("Is group me abhi koi message nahi hai. Pehla message bhejein!");
+        return;
+      }
+
+      messages.forEach((msg) => {
+        const type = Number(msg.sender_id) === Number(currentUser.id) ? "sent" : "received";
+        addGroupMessageBubble(msg, type);
+      });
+      scrollToBottom();
+    } catch (err) {
+      showFeedPlaceholder("Group messages load nahi ho paaye.");
+    }
+  }
+
+  function addGroupMessageBubble(msg, type) {
+    const placeholder = messageFeed.querySelector(".feed-placeholder");
+    if (placeholder) placeholder.remove();
+
+    const bubble = document.createElement("div");
+    bubble.classList.add("message", type);
+
+    if (type === "received") {
+      const senderTag = document.createElement("small");
+      senderTag.style.cssText = "display:block;font-size:11px;font-weight:bold;color:#00a884;margin-bottom:2px;";
+      senderTag.textContent = msg.sender_name || "User " + msg.sender_id;
+      bubble.appendChild(senderTag);
+    }
+
+    const contentEl = renderMessageContent(msg.message);
+
+    const timeEl = document.createElement("span");
+    timeEl.classList.add("message-time");
+    timeEl.textContent = formatTime(msg.created_at);
+
+    bubble.appendChild(contentEl);
+    bubble.appendChild(timeEl);
+    messageFeed.appendChild(bubble);
     scrollToBottom();
-  } catch (err) {
-    showFeedPlaceholder("Group messages load nahi ho paaye.");
   }
-}
-
-// Group ke message bubble me sender ka naam dikhana
-function addGroupMessageBubble(msg, type) {
-  const placeholder = messageFeed.querySelector(".feed-placeholder");
-  if (placeholder) placeholder.remove();
-
-  const bubble = document.createElement("div");
-  bubble.classList.add("message", type);
-
-  if (type === "received") {
-    const senderTag = document.createElement("small");
-    senderTag.style.cssText = "display:block;font-size:11px;font-weight:bold;color:#00a884;margin-bottom:2px;";
-    senderTag.textContent = msg.sender_name || "User " + msg.sender_id;
-    bubble.appendChild(senderTag);
-  }
-
-  const textEl = document.createElement("p");
-  textEl.classList.add("message-text");
-  textEl.textContent = msg.message;
-
-  const timeEl = document.createElement("span");
-  timeEl.classList.add("message-time");
-  timeEl.textContent = formatTime(msg.created_at);
-
-  bubble.appendChild(textEl);
-  bubble.appendChild(timeEl);
-  messageFeed.appendChild(bubble);
-  scrollToBottom();
-}
 
   // ----------------------------------------------------------
   // 11. PAGE LOAD: user pehle se logged-in hai?
   // ----------------------------------------------------------
   const savedUser = getSavedUser();
   if (savedUser && savedUser.id && savedUser.username) {
-    startSession(savedUser); // reload par bhi chat wapas chalu
+    startSession(savedUser);
   } else {
     chatView.classList.add("hidden");
     authView.classList.remove("hidden");
   }
 });
+

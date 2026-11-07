@@ -29,6 +29,16 @@ const all = (sql, params = []) => new Promise((resolve, reject) => {
   });
 });
 
+const ensureColumn = (tableName, columnName, definition) => {
+  db.all(`PRAGMA table_info(${tableName})`, (err, rows) => {
+    if (err) return;
+    const exists = rows.some((row) => row.name === columnName);
+    if (!exists) {
+      db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+    }
+  });
+};
+
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +88,11 @@ db.serialize(() => {
     FOREIGN KEY(sender_id) REFERENCES users(id)
   )`);
 
+  // File transfer support ke liye optional columns ensure karna
+  ensureColumn('messages', 'file_url', 'TEXT DEFAULT NULL');
+  ensureColumn('messages', 'file_name', 'TEXT DEFAULT NULL');
+  ensureColumn('group_messages', 'file_url', 'TEXT DEFAULT NULL');
+  ensureColumn('group_messages', 'file_name', 'TEXT DEFAULT NULL');
 });
 
 module.exports = { db, run, get, all };
