@@ -7,6 +7,7 @@
 // ============================================================
 
 const express = require("express");
+const jwt = require("jsonwebtoken");
 
 // bcryptjs: password ko hash karne aur compare karne ke liye.
 // (Pure JavaScript hai, isliye Windows par install me dikkat nahi aati.)
@@ -14,6 +15,7 @@ const bcrypt = require("bcryptjs");
 
 // db.js se wo helper functions jo humne banaye the.
 const { get, run } = require("../db");
+const { authenticateToken, verifyTokenString } = require("../middleware/auth");
 
 // Router = chhota mini-Express app. Isme routes bana ke index.js me
 // "/api/auth" ke neeche mount kar denge. Matlab yahan "/register" likhne par
@@ -29,6 +31,13 @@ const SALT_ROUNDS = 10;
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
 // Email: "kuch@kuch.kuch" jaisa basic format (space nahi, @ aur . hona chahiye).
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "strict",
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: 24 * 60 * 60 * 1000,
+};
 
 // ------------------------------------------------------------
 // POST /api/auth/register
@@ -84,7 +93,7 @@ router.post("/register", async (req, res) => {
 
     // ---------- Database me insert ----------
     const result = await run(
-      "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
+      "INSERT INTO users (username, email, password_hash, token_version) VALUES (?, ?, ?, 1)",
       [username, email, passwordHash]
     );
 
@@ -124,7 +133,7 @@ router.post("/login", async (req, res) => {
     // User dhundo: email se ya username se. Email lowercase me stored hai,
     // isliye identifier ko lowercase karke email se compare karte hain.
     const user = await get(
-      `SELECT id, username, email, password_hash, created_at
+      `SELECT id, username, email, password_hash, token_version, created_at
        FROM users
        WHERE email = ? OR username = ?`,
       [identifier.toLowerCase(), identifier]
@@ -144,6 +153,15 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid email/username or password." });
     }
 
+    const tokenVersion = Number(user.token_version ?? 1);
+    const sessionToken = jwt.sign(
+      { userId: user.id, username: user.username, tokenVersion },
+      process.env.JWT_SECRET,
+      { algorithm: "HS256", expiresIn: "24h" }
+    );
+
+    res.cookie("token", sessionToken, COOKIE_OPTIONS);
+
     // Login successful. 200 OK. Password hash BILKUL wapas nahi bhejna,
     // isliye sirf safe fields chun ke bhej rahe hain.
     return res.status(200).json({
@@ -161,14 +179,38 @@ router.post("/login", async (req, res) => {
   }
 });
 
+router.get("/me", authenticateToken, (req, res) => {
+  return res.status(200).json({
+    user: {
+      id: req.user.id,
+      username: req.user.username,
+      email: req.user.email,
+    },
+  });
+});
+
 // ------------------------------------------------------------
 // POST /api/auth/logout
-// Abhi hum server par session/cookie store nahi kar rahe (user info sirf
-// browser ke localStorage me hai), isliye server ko kuch clear nahi karna.
-// Bas ek 200 OK acknowledge bhej dete hain. Aage ke phases me session ya
-// token aayega to yahan usse invalidate karenge.
 // ------------------------------------------------------------
-router.post("/logout", (req, res) => {
+router.post("/logout", async (req, res) => {
+  const token = req.cookies && req.cookies.token ? req.cookies.token : null;
+
+  if (token) {
+    const verification = await verifyTokenString(token);
+    if (verification.valid && verification.user) {
+      try {
+        await run(
+          "UPDATE users SET token_version = token_version + 1 WHERE id = ?",
+          [verification.user.id]
+        );
+      } catch (err) {
+        console.error("Logout token revocation failed:", err);
+        return res.status(500).json({ error: "Could not complete logout." });
+      }
+    }
+  }
+
+  res.clearCookie("token", COOKIE_OPTIONS);
   return res.status(200).json({ message: "Logged out successfully." });
 });
 

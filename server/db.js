@@ -31,11 +31,46 @@ const all = (sql, params = []) => new Promise((resolve, reject) => {
 
 const ensureColumn = (tableName, columnName, definition) => {
   db.all(`PRAGMA table_info(${tableName})`, (err, rows) => {
-    if (err) return;
+    if (err) {
+      console.error(`[DB Migration] Failed to inspect ${tableName}:`, err.message);
+      return;
+    }
     const exists = rows.some((row) => row.name === columnName);
     if (!exists) {
       db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
     }
+  });
+};
+
+const ensureTokenVersionColumn = () => {
+  db.all('PRAGMA table_info(users)', (err, rows) => {
+    if (err) {
+      console.error('[DB Migration] Unable to inspect users table:', err.message);
+      return;
+    }
+
+    const exists = rows.some((row) => row.name === 'token_version');
+    if (!exists) {
+      db.run('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1', (alterErr) => {
+        if (alterErr) {
+          console.error('[DB Migration] Failed to add token_version column:', alterErr.message);
+          return;
+        }
+
+        db.run('UPDATE users SET token_version = 1 WHERE token_version IS NULL', (updateErr) => {
+          if (updateErr) {
+            console.error('[DB Migration] Failed to initialize existing user token versions:', updateErr.message);
+          }
+        });
+      });
+      return;
+    }
+
+    db.run('UPDATE users SET token_version = 1 WHERE token_version IS NULL', (updateErr) => {
+      if (updateErr) {
+        console.error('[DB Migration] Failed to normalize existing user token versions:', updateErr.message);
+      }
+    });
   });
 };
 
@@ -45,6 +80,7 @@ db.serialize(() => {
     username TEXT NOT NULL UNIQUE,
     email TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
+    token_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   )`);
 
@@ -93,6 +129,8 @@ db.serialize(() => {
   ensureColumn('messages', 'file_name', 'TEXT DEFAULT NULL');
   ensureColumn('group_messages', 'file_url', 'TEXT DEFAULT NULL');
   ensureColumn('group_messages', 'file_name', 'TEXT DEFAULT NULL');
+
+  ensureTokenVersionColumn();
 });
 
 module.exports = { db, run, get, all };

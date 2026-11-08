@@ -3,14 +3,22 @@
 // ==========================================
 require('dotenv').config();
 
+const jwtSecret = (process.env.JWT_SECRET || '').trim();
+if (!jwtSecret || jwtSecret.length < 32) {
+  console.error('FATAL ERROR: JWT_SECRET must be set in .env and be at least 32 characters long.');
+  process.exit(1);
+}
+
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const cookieParser = require('cookie-parser');
 
 // db.js se database helpers import karna
 const { db, run, get, all } = require('./db');
 const authRoutes = require('./routes/auth');
+const { authenticateToken } = require('./middleware/auth');
 
 const app = express();
 const server = http.createServer(app);
@@ -53,6 +61,7 @@ app.use('/uploads', express.static(uploadDir));
 
 // Body parser: JSON data handle karne ke liye
 app.use(express.json());
+app.use(cookieParser());
 
 // Client folder static serve karna
 app.use(express.static(path.join(__dirname, '../client')));
@@ -66,7 +75,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // 1. All Users API (Sidebar ke liye)
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     const rows = await all('SELECT id, username, email FROM users');
     res.json(rows || []);
@@ -77,8 +86,19 @@ app.get('/api/users', async (req, res) => {
 });
 
 // 2. Chat History API (Do users ke purane messages lana)
-app.get('/api/messages/:userId1/:userId2', async (req, res) => {
-  const { userId1, userId2 } = req.params;
+app.get('/api/messages/:userId1/:userId2', authenticateToken, async (req, res) => {
+  const firstUserId = Number(req.params.userId1);
+  const secondUserId = Number(req.params.userId2);
+  const authenticatedUserId = Number(req.user.id);
+  let otherUserId;
+
+  if (firstUserId === authenticatedUserId) {
+    otherUserId = secondUserId;
+  } else if (secondUserId === authenticatedUserId) {
+    otherUserId = firstUserId;
+  } else {
+    return res.status(403).json({ error: 'You can only view your own conversations.' });
+  }
   
   const query = `
     SELECT * FROM messages 
@@ -88,7 +108,7 @@ app.get('/api/messages/:userId1/:userId2', async (req, res) => {
   `;
 
   try {
-    const rows = await all(query, [userId1, userId2, userId2, userId1]);
+    const rows = await all(query, [authenticatedUserId, otherUserId, otherUserId, authenticatedUserId]);
     res.json(rows || []);
   } catch (err) {
     console.error('[API Error] Messages fetch failed:', err.message);
@@ -97,23 +117,24 @@ app.get('/api/messages/:userId1/:userId2', async (req, res) => {
 });
 
 // 3. Group Create API
-app.post('/api/groups', async (req, res) => {
-  const { name, created_by, member_ids } = req.body;
-  if (!name || !created_by) {
-    return res.status(400).json({ error: 'Group name aur creator zaroori hai' });
+app.post('/api/groups', authenticateToken, async (req, res) => {
+  const { name, member_ids } = req.body;
+  const createdBy = req.user.id;
+  if (!name) {
+    return res.status(400).json({ error: 'Group name zaroori hai' });
   }
 
   try {
-    const groupResult = await run('INSERT INTO groups (name, created_by) VALUES (?, ?)', [name, created_by]);
+    const groupResult = await run('INSERT INTO groups (name, created_by) VALUES (?, ?)', [name, createdBy]);
     const groupId = groupResult.lastID;
 
     // Creator ko group member banana
-    await run('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)', [groupId, created_by]);
+    await run('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)', [groupId, createdBy]);
 
     // Baaki selected members ko add karna
     if (Array.isArray(member_ids)) {
       for (const mId of member_ids) {
-        if (mId !== created_by) {
+        if (Number(mId) !== Number(createdBy)) {
           await run('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)', [groupId, mId]);
         }
       }
@@ -127,7 +148,7 @@ app.post('/api/groups', async (req, res) => {
 });
 
     // File Upload Endpoint
-app.post('/api/upload', upload.single('file'), (req, res) => {
+app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Koi file upload nahi hui' });
   }
@@ -144,8 +165,7 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 
 
 // 4. User ke groups fetch karna
-app.get('/api/users/:userId/groups', async (req, res) => {
-  const { userId } = req.params;
+app.get('/api/users/:userId/groups', authenticateToken, async (req, res) => {
   try {
     const query = `
       SELECT g.id, g.name, g.created_by 
@@ -153,7 +173,7 @@ app.get('/api/users/:userId/groups', async (req, res) => {
       JOIN group_members gm ON g.id = gm.group_id
       WHERE gm.user_id = ?
     `;
-    const groups = await all(query, [userId]);
+    const groups = await all(query, [req.user.id]);
     res.json(groups || []);
   } catch (err) {
     res.status(500).json({ error: 'Groups load failed' });
@@ -161,7 +181,7 @@ app.get('/api/users/:userId/groups', async (req, res) => {
 });
 
 // 5. Group chat history fetch karna
-app.get('/api/groups/:groupId/messages', async (req, res) => {
+app.get('/api/groups/:groupId/messages', authenticateToken, async (req, res) => {
   const { groupId } = req.params;
   try {
     const query = `

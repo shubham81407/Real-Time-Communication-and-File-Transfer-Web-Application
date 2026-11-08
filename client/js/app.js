@@ -94,14 +94,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // ---------- localStorage helpers ----------
-  function getSavedUser() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (error) {
-      return null;
-    }
-  }
   function saveUser(user) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
   }
@@ -136,8 +128,24 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify(body),
       });
+      let data = {};
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        data = {};
+      }
+      return { ok: response.ok, status: response.status, data: data };
+    } catch (networkError) {
+      return { ok: false, status: 0, data: { error: "Cannot reach the server. Is it running?" } };
+    }
+  }
+
+  async function apiGet(url) {
+    try {
+      const response = await fetch(url, { credentials: "same-origin" });
       let data = {};
       try {
         data = await response.json();
@@ -243,6 +251,28 @@ document.addEventListener("DOMContentLoaded", () => {
   function setInputEnabled(enabled) {
     messageInput.disabled = !enabled;
     messageSendBtn.disabled = !enabled;
+  }
+
+  async function restoreSession() {
+    const response = await apiGet("/api/auth/me");
+
+    if (!response.ok) {
+      clearUser();
+      authView.classList.remove("hidden");
+      chatView.classList.add("hidden");
+      return;
+    }
+
+    const user = response.data && response.data.user ? response.data.user : null;
+    if (!user || !user.id) {
+      clearUser();
+      authView.classList.remove("hidden");
+      chatView.classList.add("hidden");
+      return;
+    }
+
+    saveUser(user);
+    startSession(user);
   }
 
   // Sidebar me ek user ka item (li) banao.
@@ -436,7 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // 6. SESSION START / END (login ke baad aur logout par)
   // ----------------------------------------------------------
 
-  // Login (ya page reload par saved user) ke baad ye chalta hai.
+  // Login ya server-verified session restoration ke baad ye chalta hai.
   function startSession(user) {
     currentUser = user;
 
@@ -477,8 +507,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Logout par: socket band, state clear, localStorage clear, login screen.
   async function endSession() {
-    await apiPost("/api/auth/logout", {}); // server ko batao (fail ho to bhi koi dikkat nahi)
-
     socket.disconnect(); // WebSocket connection band; server is user ko offline maan lega
 
     currentUser = null;
@@ -667,7 +695,10 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Logout button
-  logoutBtn.addEventListener("click", endSession);
+  logoutBtn.addEventListener("click", async () => {
+    await apiPost("/api/auth/logout", {});
+    endSession();
+  });
 
   // ----------------------------------------------------------
   // 10. BAAKI UI EVENTS
@@ -854,12 +885,6 @@ document.addEventListener("DOMContentLoaded", () => {
   // ----------------------------------------------------------
   // 11. PAGE LOAD: user pehle se logged-in hai?
   // ----------------------------------------------------------
-  const savedUser = getSavedUser();
-  if (savedUser && savedUser.id && savedUser.username) {
-    startSession(savedUser);
-  } else {
-    chatView.classList.add("hidden");
-    authView.classList.remove("hidden");
-  }
+  restoreSession();
 });
 
