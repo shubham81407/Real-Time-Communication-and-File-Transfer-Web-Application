@@ -1,6 +1,17 @@
 const jwt = require('jsonwebtoken');
 const { get } = require('../db');
 
+function getTokenFromCookieHeader(cookieHeader) {
+  if (typeof cookieHeader !== 'string') return null;
+
+  const tokenCookie = cookieHeader
+    .split(';')
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith('token='));
+
+  return tokenCookie ? tokenCookie.slice('token='.length) : null;
+}
+
 async function verifyTokenString(token) {
   if (!token || typeof token !== 'string' || token.trim() === '') {
     return { valid: false, error: 'Missing session token.' };
@@ -72,4 +83,5 @@ async function authenticateToken(req, res, next) {
 module.exports = {
   verifyTokenString,
   authenticateToken,
+  getTokenFromCookieHeader,
 };

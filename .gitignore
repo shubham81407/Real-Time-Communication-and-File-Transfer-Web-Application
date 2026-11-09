@@ -6,8 +6,15 @@ node_modules/
 
 # Database files
 *.db
+*.db-*
+*.db.*
 *.sqlite
 *.sqlite3
+*.sqlite-*
+*.sqlite.*
+
+# Runtime uploads
+/uploads/
 
 # Logs
 logs/

@@ -210,7 +210,12 @@ router.post("/logout", async (req, res) => {
     }
   }
 
-  res.clearCookie("token", COOKIE_OPTIONS);
+  res.clearCookie("token", {
+    httpOnly: COOKIE_OPTIONS.httpOnly,
+    sameSite: COOKIE_OPTIONS.sameSite,
+    secure: COOKIE_OPTIONS.secure,
+    path: COOKIE_OPTIONS.path,
+  });
   return res.status(200).json({ message: "Logged out successfully." });
 });
 

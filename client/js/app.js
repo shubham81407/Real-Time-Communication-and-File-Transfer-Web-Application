@@ -9,7 +9,7 @@
 // Ye same server (jahan se page aaya) se WebSocket connection kholta hai.
 // Ye line DOMContentLoaded ke bahar hai taaki socket poore file me sab jagah mile.
 // ------------------------------------------------------------
-const socket = io();
+const socket = io({ autoConnect: false });
 
 document.addEventListener("DOMContentLoaded", () => {
   // ----------------------------------------------------------
@@ -42,6 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const messageForm = document.getElementById("message-form");
   const messageInput = document.getElementById("message-input");
   const messageSendBtn = messageForm.querySelector(".send-btn");
+  const appNotice = document.getElementById("app-notice");
 
   // ----------------------------------------------------------
   // 2. APP STATE (jo cheezein app ko yaad rakhni hain)
@@ -58,6 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let onlineUserIds = []; // server ne jo online users ki id list bheji
   const lastMessages = {}; // { userId: { text, time } } sidebar preview ke liye
   const unreadCounts = {}; // { userId: number } jin chats ke messages abhi padhe nahi
+  let noticeTimer = null;
 
   // ----------------------------------------------------------
   // 3. HELPER FUNCTIONS
@@ -114,6 +116,12 @@ document.addEventListener("DOMContentLoaded", () => {
   function setLoading(button, isLoading, loadingText, normalText) {
     button.disabled = isLoading;
     button.textContent = isLoading ? loadingText : normalText;
+  }
+  function showNotice(message, type) {
+    appNotice.textContent = message;
+    appNotice.className = "app-notice " + (type || "");
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => appNotice.classList.add("hidden"), 4000);
   }
   function switchTab(tabName) {
     tabButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === tabName));
@@ -174,26 +182,96 @@ document.addEventListener("DOMContentLoaded", () => {
     messageFeed.appendChild(wrapper);
   }
 
-  // Rich message ko render karne ke liye helper.
-  // Agar message file share payload hai, to HTML ko allow karna padega,
-  // warna normal text message ko safe way me render karna chahiye.
+  function safeUploadUrl(value) {
+    if (typeof value !== "string" || !value) return null;
+    try {
+      const url = new URL(value, window.location.origin);
+      if (url.origin !== window.location.origin || !url.pathname.startsWith("/uploads/") || url.search || url.hash) {
+        return null;
+      }
+      return url.pathname;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function parseAttachment(messageText) {
+    const raw = String(messageText || "");
+    const prefix = "chat-attachment:";
+    if (raw.startsWith(prefix)) {
+      try {
+        const attachment = JSON.parse(raw.slice(prefix.length));
+        const url = safeUploadUrl(attachment.url);
+        if (!url || attachment.type !== "file") return null;
+        return {
+          url,
+          fileName: typeof attachment.fileName === "string" ? attachment.fileName.slice(0, 255) : "Shared file",
+          fileSize: Number(attachment.fileSize) || 0,
+        };
+      } catch (error) {
+        return null;
+      }
+    }
+
+    // Older versions stored attachment markup. Extract only its text and a
+    // same-origin upload URL; the parsed HTML is never inserted into the page.
+    if (raw.startsWith("<") && raw.includes("file-message")) {
+      const parsed = new DOMParser().parseFromString(raw, "text/html");
+      const container = parsed.querySelector(".file-message");
+      const link = container && container.querySelector("a[href]");
+      const image = container && container.querySelector("img[src]");
+      const url = safeUploadUrl((link && link.getAttribute("href")) || (image && image.getAttribute("src")));
+      if (!url) return null;
+      const linkText = link ? link.textContent.trim().replace(/^[📁📄]\s*/, "") : "";
+      return {
+        url,
+        fileName: (linkText || (image && image.getAttribute("alt")) || "Shared file").slice(0, 255),
+        fileSize: 0,
+      };
+    }
+    return null;
+  }
+
+  function createAttachmentElement(attachment) {
+    const wrap = document.createElement("div");
+    wrap.className = "file-message";
+    const fileName = attachment.fileName.replace(/[\\/\0]/g, "_");
+    const isImage = /\.(png|jpe?g|gif|webp)$/i.test(attachment.url);
+
+    if (isImage) {
+      const image = document.createElement("img");
+      image.className = "file-preview";
+      image.src = attachment.url;
+      image.alt = fileName;
+      image.loading = "lazy";
+      wrap.appendChild(image);
+    }
+
+    const link = document.createElement("a");
+    link.href = attachment.url;
+    link.download = fileName;
+    link.textContent = fileName;
+    wrap.appendChild(link);
+
+    if (attachment.fileSize > 0) {
+      const size = document.createElement("span");
+      size.className = "file-size";
+      size.textContent = `${(attachment.fileSize / 1024).toFixed(1)} KB`;
+      wrap.appendChild(size);
+    }
+    return wrap;
+  }
+
+  function messagePreview(messageText) {
+    const attachment = parseAttachment(messageText);
+    if (attachment) return `File: ${attachment.fileName}`;
+    return String(messageText || "").slice(0, 100);
+  }
+
   function renderMessageContent(messageText) {
     const raw = String(messageText || "").trim();
-    if (!raw) {
-      const empty = document.createElement("p");
-      empty.classList.add("message-text");
-      empty.textContent = "";
-      return empty;
-    }
-
-    const isRichPayload = raw.startsWith("<") && (raw.includes("href=") || raw.includes("<img") || raw.includes("file-message"));
-
-    if (isRichPayload) {
-      const wrap = document.createElement("div");
-      wrap.className = "rich-message";
-      wrap.innerHTML = raw;
-      return wrap;
-    }
+    const attachment = parseAttachment(raw);
+    if (attachment) return createAttachmentElement(attachment);
 
     const textEl = document.createElement("p");
     textEl.classList.add("message-text");
@@ -317,9 +395,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (unread > 0) {
       const unreadBadge = document.createElement("span");
       unreadBadge.textContent = unread;
-      // Chhota hara gol badge (inline style, taaki alag CSS na likhni pade)
-      unreadBadge.style.cssText =
-        "background:#00a884;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:8px;";
+      unreadBadge.className = "unread-badge";
       last.appendChild(unreadBadge);
     }
 
@@ -339,7 +415,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Render Groups First
     if (userGroups && userGroups.length > 0) {
       const groupHeader = document.createElement("li");
-      groupHeader.style.cssText = "padding: 8px 12px; font-size: 12px; font-weight: bold; color: #8696a0; text-transform: uppercase;";
+      groupHeader.className = "conversation-section-title";
       groupHeader.textContent = "Groups";
       conversationList.appendChild(groupHeader);
 
@@ -348,21 +424,29 @@ document.addEventListener("DOMContentLoaded", () => {
         li.className = "conversation-item";
         if (activeGroup && activeGroup.id === group.id) li.classList.add("active");
 
-        li.innerHTML = `
-          <div class="avatar avatar-purple">👥</div>
-          <div class="conversation-info">
-            <div class="conversation-top">
-              <h3>${group.name}</h3>
-            </div>
-            <p class="conversation-last">Tap to open group chat</p>
-          </div>
-        `;
+        const avatar = document.createElement("div");
+        avatar.className = "avatar avatar-purple";
+        avatar.textContent = "👥";
+        const info = document.createElement("div");
+        info.className = "conversation-info";
+        const top = document.createElement("div");
+        top.className = "conversation-top";
+        const name = document.createElement("h3");
+        name.textContent = group.name;
+        const last = document.createElement("p");
+        last.className = "conversation-last";
+        last.textContent = "Tap to open group chat";
+        top.appendChild(name);
+        info.appendChild(top);
+        info.appendChild(last);
+        li.appendChild(avatar);
+        li.appendChild(info);
         li.addEventListener("click", () => selectGroupChat(group));
         conversationList.appendChild(li);
       });
 
       const userHeader = document.createElement("li");
-      userHeader.style.cssText = "padding: 8px 12px; font-size: 12px; font-weight: bold; color: #8696a0; text-transform: uppercase;";
+      userHeader.className = "conversation-section-title";
       userHeader.textContent = "Direct Messages";
       conversationList.appendChild(userHeader);
     }
@@ -372,7 +456,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (visibleUsers.length === 0) {
       const empty = document.createElement("li");
-      empty.style.cssText = "padding:20px;text-align:center;color:#667781;font-size:14px;";
+      empty.className = "conversation-empty";
       empty.textContent = allUsers.length === 0 ? "No other users registered yet." : "No users found.";
       conversationList.appendChild(empty);
       return;
@@ -403,7 +487,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       conversationList.textContent = "";
       const failed = document.createElement("li");
-      failed.style.cssText = "padding:20px;text-align:center;color:#d93025;font-size:14px;";
+      failed.className = "conversation-empty error";
       failed.textContent = "Could not load users.";
       conversationList.appendChild(failed);
     }
@@ -438,7 +522,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // Sidebar preview me aakhri message dikhao
       const lastMsg = messages[messages.length - 1];
       const prefix = Number(lastMsg.sender_id) === Number(currentUser.id) ? "You: " : "";
-      setLastMessage(user.id, prefix + lastMsg.message, lastMsg.created_at);
+      setLastMessage(user.id, prefix + messagePreview(lastMsg.message), lastMsg.created_at);
       renderUserList();
     } catch (error) {
       if (activeChat && Number(activeChat.id) === Number(requestedId)) {
@@ -491,15 +575,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setInputEnabled(false);
     showFeedPlaceholder("Select a user to start chatting");
 
-    // Socket server ko batao "main ye user hoon" (register_user event).
-    // Server isse mapping banata hai: user id -> socket id, taaki private message sahi bande tak pahunche.
-    if (socket.connected) {
-      socket.emit("register_user", currentUser.id);
-    } else {
-      // Logout ke baad socket disconnected hota hai, isliye dobara connect karo.
-      // Connect hote hi neeche wala "connect" listener register_user emit kar dega.
-      socket.connect();
-    }
+    socket.connect();
 
     loadUsers(); // sidebar me baaki users laao
     loadUserGroups();
@@ -537,6 +613,19 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  socket.on("connect_error", (error) => {
+    showNotice(error.message === "Authentication required." ? "Please log in to connect." : "Connection lost. Trying to reconnect...", "error");
+    if (error.message === "Authentication required." && currentUser) endSession();
+  });
+
+  socket.on("session_expired", (data) => {
+    showNotice(data.message || "Your session expired. Please log in again.", "error");
+    endSession();
+  });
+
+  socket.on("message_error", (data) => showNotice(data.error || "Message could not be sent.", "error"));
+  socket.on("group_error", (data) => showNotice(data.error || "Group action was not allowed.", "error"));
+
   // "online_users_list": server ne abhi online users ki id array bheji.
   // Isse sidebar ke hare badge aur chat header ka online/offline status update hota hai.
   socket.on("online_users_list", (userIds) => {
@@ -558,7 +647,7 @@ document.addEventListener("DOMContentLoaded", () => {
       unreadCounts[fromId] = (unreadCounts[fromId] || 0) + 1;
     }
 
-    setLastMessage(fromId, msg.message, msg.created_at);
+    setLastMessage(fromId, messagePreview(msg.message), msg.created_at);
     renderUserList();
   });
 
@@ -569,7 +658,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (activeChat && Number(activeChat.id) === Number(toId)) {
       addMessageBubble(msg, "sent");
     }
-    setLastMessage(toId, "You: " + msg.message, msg.created_at);
+    setLastMessage(toId, "You: " + messagePreview(msg.message), msg.created_at);
     renderUserList();
   });
 
@@ -583,7 +672,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (text === "" || (!activeChat && !activeGroup) || !currentUser) return;
 
     if (!socket.connected) {
-      alert("Server se connection nahi hai.");
+      showNotice("Server connection is unavailable. Reconnecting...", "error");
       return;
     }
 
@@ -725,11 +814,12 @@ document.addEventListener("DOMContentLoaded", () => {
     const formData = new FormData();
     formData.append("file", file);
 
-    showFeedPlaceholder("File upload ho rahi hai...");
+    showNotice("Uploading file...", "info");
 
     try {
       const response = await fetch("/api/upload", {
         method: "POST",
+        credentials: "same-origin",
         body: formData
       });
 
@@ -741,28 +831,29 @@ document.addEventListener("DOMContentLoaded", () => {
       const fileUrl = data.fileUrl || "";
       const fileName = data.fileName || file.name;
       const fileSize = data.fileSize || file.size;
-      const fileType = data.fileType || file.type || "application/octet-stream";
-      const isImage = fileType.startsWith("image/");
-
-      const fileHtml = isImage
-        ? `<div class="file-message"><img src="${fileUrl}" alt="${fileName}" style="max-width:220px;max-height:180px;border-radius:8px;display:block;margin-bottom:8px;" /><a href="${fileUrl}" target="_blank" download style="color:#00a884;text-decoration:underline;">📁 ${fileName}</a></div>`
-        : `<div class="file-message"><a href="${fileUrl}" target="_blank" download style="color:#00a884;text-decoration:underline;">📄 ${fileName}</a><div style="font-size:12px;color:#8696a0;">${(fileSize / 1024).toFixed(1)} KB</div></div>`;
+      const fileMessage = "chat-attachment:" + JSON.stringify({
+        type: "file",
+        url: fileUrl,
+        fileName,
+        fileSize,
+      });
 
       if (activeGroup) {
         socket.emit("send_group_message", {
           group_id: activeGroup.id,
           sender_id: currentUser.id,
-          message: fileHtml
+          message: fileMessage
         });
       } else if (activeChat) {
         socket.emit("send_private_message", {
           sender_id: currentUser.id,
           receiver_id: activeChat.id,
-          message: fileHtml
+          message: fileMessage
         });
       }
+      showNotice("File uploaded and shared.", "success");
     } catch (error) {
-      alert("File upload error: " + error.message);
+      showNotice(error.message || "File upload failed.", "error");
     } finally {
       if (fileInput) fileInput.value = "";
     }
@@ -791,9 +882,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const res = await fetch("/api/groups", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({
             name: groupName.trim(),
-            created_by: currentUser.id,
             member_ids: memberIds
           })
         });
@@ -801,10 +892,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Group creation failed");
 
-        alert(`Group "${groupName}" successfully ban gaya!`);
+        showNotice(`Group "${groupName}" created.`, "success");
         loadUserGroups();
       } catch (err) {
-        alert("Error creating group: " + err.message);
+        showNotice(err.message || "Group creation failed.", "error");
       }
     });
   }
@@ -812,11 +903,12 @@ document.addEventListener("DOMContentLoaded", () => {
   async function loadUserGroups() {
     if (!currentUser) return;
     try {
-      const res = await fetch(`/api/users/${currentUser.id}/groups`);
+      const res = await fetch(`/api/users/${currentUser.id}/groups`, { credentials: "same-origin" });
+      if (!res.ok) throw new Error("Groups could not be loaded.");
       userGroups = await res.json();
       renderUserList();
     } catch (err) {
-      console.error("Groups load error:", err);
+      showNotice(err.message || "Groups could not be loaded.", "error");
     }
   }
 
@@ -837,7 +929,8 @@ document.addEventListener("DOMContentLoaded", () => {
     socket.emit("join_group", group.id);
 
     try {
-      const res = await fetch(`/api/groups/${group.id}/messages`);
+      const res = await fetch(`/api/groups/${group.id}/messages`, { credentials: "same-origin" });
+      if (!res.ok) throw new Error("Group messages could not be loaded.");
       const messages = await res.json();
 
       messageFeed.textContent = "";
@@ -852,7 +945,7 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       scrollToBottom();
     } catch (err) {
-      showFeedPlaceholder("Group messages load nahi ho paaye.");
+      showFeedPlaceholder(err.message || "Group messages could not be loaded.");
     }
   }
 

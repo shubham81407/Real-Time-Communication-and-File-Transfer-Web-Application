@@ -7,6 +7,7 @@ fs.mkdirSync(dbDir, { recursive: true });
 
 const dbPath = path.join(dbDir, 'chat.db');
 const db = new sqlite3.Database(dbPath);
+db.configure('busyTimeout', 5000);
 
 const run = (sql, params = []) => new Promise((resolve, reject) => {
   db.run(sql, params, function(err) {
@@ -75,6 +76,8 @@ const ensureTokenVersionColumn = () => {
 };
 
 db.serialize(() => {
+  db.run('PRAGMA journal_mode = WAL');
+
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE,
