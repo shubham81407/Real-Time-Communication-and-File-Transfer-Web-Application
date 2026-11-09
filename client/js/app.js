@@ -43,6 +43,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const messageInput = document.getElementById("message-input");
   const messageSendBtn = messageForm.querySelector(".send-btn");
   const appNotice = document.getElementById("app-notice");
+  const createGroupDialog = document.getElementById("create-group-dialog");
+  const createGroupForm = document.getElementById("create-group-form");
+  const groupNameInput = document.getElementById("group-name");
+  const groupMemberList = document.getElementById("group-member-list");
+  const groupMembersEmpty = document.getElementById("group-members-empty");
+  const groupError = document.getElementById("group-error");
+  const submitGroupBtn = document.getElementById("submit-group-btn");
 
   // ----------------------------------------------------------
   // 2. APP STATE (jo cheezein app ko yaad rakhni hain)
@@ -872,33 +879,78 @@ document.addEventListener("DOMContentLoaded", () => {
     createGroupBtn.addEventListener("click", async () => {
       if (!currentUser) return;
 
-      const groupName = prompt("Naye Group ka naam likhein:");
-      if (!groupName || groupName.trim() === "") return;
-
       try {
-        const memberIds = allUsers.map((u) => u.id);
-        memberIds.push(currentUser.id);
+        createGroupBtn.disabled = true;
+        await loadUsers();
+        groupMemberList.textContent = "";
+        groupError.textContent = "";
+        groupMembersEmpty.classList.toggle("hidden", allUsers.length > 0);
 
-        const res = await fetch("/api/groups", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({
-            name: groupName.trim(),
-            member_ids: memberIds
-          })
+        allUsers.forEach((user) => {
+          const label = document.createElement("label");
+          label.className = "group-member-option";
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.name = "member_ids";
+          checkbox.value = String(user.id);
+          const username = document.createElement("span");
+          username.textContent = user.username;
+          label.appendChild(checkbox);
+          label.appendChild(username);
+          groupMemberList.appendChild(label);
         });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Group creation failed");
-
-        showNotice(`Group "${groupName}" created.`, "success");
-        loadUserGroups();
+        groupNameInput.value = "";
+        createGroupDialog.showModal();
+        groupNameInput.focus();
       } catch (err) {
-        showNotice(err.message || "Group creation failed.", "error");
+        showNotice(err.message || "Users could not be loaded.", "error");
+      } finally {
+        createGroupBtn.disabled = false;
       }
     });
   }
+
+  document.getElementById("cancel-group-btn").addEventListener("click", () => {
+    createGroupDialog.close();
+    createGroupForm.reset();
+    groupError.textContent = "";
+  });
+
+  createGroupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const name = groupNameInput.value.trim();
+    if (!name) {
+      groupError.textContent = "Enter a group name.";
+      groupNameInput.focus();
+      return;
+    }
+
+    const memberIds = Array.from(groupMemberList.querySelectorAll('input[name="member_ids"]:checked'))
+      .map((checkbox) => Number(checkbox.value));
+
+    setLoading(submitGroupBtn, true, "Creating...", "Create Group");
+    groupError.textContent = "";
+    try {
+      const response = await fetch("/api/groups", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ name, member_ids: memberIds }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Group creation failed.");
+
+      createGroupDialog.close();
+      createGroupForm.reset();
+      showNotice(`Group "${data.name}" created.`, "success");
+      await loadUserGroups();
+    } catch (error) {
+      groupError.textContent = error.message || "Group creation failed.";
+    } finally {
+      setLoading(submitGroupBtn, false, "Creating...", "Create Group");
+    }
+  });
 
   async function loadUserGroups() {
     if (!currentUser) return;

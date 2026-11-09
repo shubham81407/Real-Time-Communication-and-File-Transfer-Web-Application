@@ -329,6 +329,60 @@ body {
 }
 .secondary-btn:hover { border-color: var(--primary); color: var(--primary-dark); }
 
+.group-dialog {
+  width: min(440px, calc(100vw - 32px));
+  max-height: min(680px, calc(100dvh - 32px));
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-main);
+  box-shadow: 0 16px 48px rgba(17, 27, 33, 0.22);
+}
+.group-dialog::backdrop { background: rgba(17, 27, 33, 0.48); }
+.group-form {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+.group-form-header h2 { font-size: 20px; }
+.group-form-header p { margin-top: 4px; color: var(--text-light); font-size: 13px; }
+.group-name-field { display: grid; gap: 6px; }
+.group-name-field label,
+.group-member-fieldset legend { font-size: 13px; font-weight: 600; }
+.group-name-field input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+.group-name-field input:focus-visible { outline: 2px solid rgba(0, 128, 105, 0.35); }
+.group-member-fieldset {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.group-member-list {
+  display: grid;
+  max-height: min(38dvh, 280px);
+  overflow-y: auto;
+  gap: 2px;
+}
+.group-member-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.group-member-option:hover { background: var(--bg-app); }
+.group-member-option input { width: 18px; height: 18px; accent-color: var(--primary); }
+.group-members-empty { padding: 8px; color: var(--text-light); font-size: 13px; }
+.group-form-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.group-form-actions .btn-primary { width: auto; min-width: 132px; }
+
 /* Conversation list: flex: 1 se ye bachi hui poori height le leta hai,
    aur overflow-y: auto se list lambi ho to sirf ye scroll hoti hai. */
 .conversation-list {

@@ -319,6 +319,32 @@
 
     <div id="app-notice" class="app-notice hidden" role="status" aria-live="polite"></div>
 
+    <dialog id="create-group-dialog" class="group-dialog">
+      <form id="create-group-form" class="group-form">
+        <header class="group-form-header">
+          <h2>Create a group</h2>
+          <p>Choose the people who should be included.</p>
+        </header>
+
+        <div class="group-name-field">
+          <label for="group-name">Group name</label>
+          <input id="group-name" name="name" type="text" maxlength="60" required />
+        </div>
+
+        <fieldset class="group-member-fieldset">
+          <legend>Members</legend>
+          <div id="group-member-list" class="group-member-list"></div>
+          <p id="group-members-empty" class="group-members-empty hidden">No other registered users are available.</p>
+        </fieldset>
+
+        <p id="group-error" class="form-error" role="alert"></p>
+        <div class="group-form-actions">
+          <button type="button" id="cancel-group-btn" class="secondary-btn">Cancel</button>
+          <button type="submit" id="submit-group-btn" class="btn-primary">Create Group</button>
+        </div>
+      </form>
+    </dialog>
+
     <!-- JS file sabse neeche, taaki pehle saara HTML ban jaye, phir JS usse access kare. -->
     <script src="js/app.js"></script>
   </body>
