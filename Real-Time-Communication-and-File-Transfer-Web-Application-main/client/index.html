@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<!-- Ye HTML5 document hai. lang="en" browser aur screen readers ko batata hai ki page English me hai. -->
+<html lang="en">
+  <head>
+    <!-- charset UTF-8: taaki saare characters (emoji, Hindi, etc.) sahi dikhein -->
+    <meta charset="UTF-8" />
+
+    <!-- viewport meta: mobile par page ko screen ki width ke hisaab se dikhata hai. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>ChatSphere - Real-Time Communication App</title>
+
+    <!-- Hamari CSS file. Path "css/style.css" client/ folder se relative hai. -->
+    <link rel="stylesheet" href="css/style.css" />
+    <!-- Socket.IO Client Library (Server se automatically serve hoti hai) -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="js/app.js"></script>
+  </head>
+
+  <body>
+    <!-- ======================================================
+         VIEW 1: AUTHENTICATION SCREEN (Login + Register)
+         JS isi ke ids (auth-view, login-form, register-form...) se elements
+         dhundhta hai, isliye ids badalna mat warna JS toot jaayegi.
+         ====================================================== -->
+    <main id="auth-view" class="auth-view">
+      <section class="auth-card">
+        <div class="auth-logo">💬</div>
+        <h1 class="auth-title">ChatSphere</h1>
+        <p class="auth-subtitle">Real-Time Communication App</p>
+
+        <!-- Tabs: data-tab attribute JS ko batata hai ki kaunsa form dikhana hai. -->
+        <div class="auth-tabs">
+          <button type="button" class="tab-btn active" data-tab="login">
+            Login
+          </button>
+          <button type="button" class="tab-btn" data-tab="register">
+            Register
+          </button>
+        </div>
+
+        <!-- ---------- LOGIN FORM ---------- -->
+        <!-- novalidate: browser ka default validation band, kyunki hum apna validation JS me karte hain -->
+        <form id="login-form" class="auth-form active" novalidate>
+          <div class="form-group">
+            <label for="login-email">Email or Username</label>
+            <!-- type="text" kiya hai taaki username bhi type kar sakein
+                 (type="email" username ko reject kar deta) -->
+            <input
+              type="text"
+              id="login-email"
+              placeholder="you@example.com or username"
+              autocomplete="username"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="login-password">Password</label>
+            <input
+              type="password"
+              id="login-password"
+              placeholder="Enter your password"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+
+          <!-- Register ke baad "account ban gaya" wala success message yahan dikhega -->
+          <p class="form-error" id="login-success"></p>
+
+          <!-- Login ke error messages yahan dikhenge (JS isme text daalega) -->
+          <p class="form-error" id="login-error"></p>
+
+          <button type="submit" id="login-btn" class="btn-primary">Login</button>
+        </form>
+
+        <!-- ---------- REGISTER FORM ---------- -->
+        <form id="register-form" class="auth-form" novalidate>
+          <div class="form-group">
+            <label for="register-username">Username</label>
+            <input
+              type="text"
+              id="register-username"
+              placeholder="3-20 letters, numbers or _"
+              autocomplete="username"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="register-email">Email</label>
+            <input
+              type="email"
+              id="register-email"
+              placeholder="you@example.com"
+              autocomplete="email"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="register-password">Password</label>
+            <input
+              type="password"
+              id="register-password"
+              placeholder="Minimum 6 characters"
+              autocomplete="new-password"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="register-confirm">Confirm Password</label>
+            <input
+              type="password"
+              id="register-confirm"
+              placeholder="Re-enter your password"
+              autocomplete="new-password"
+              required
+            />
+          </div>
+
+          <p class="form-error" id="register-error"></p>
+
+          <button type="submit" id="register-btn" class="btn-primary">
+            Create Account
+          </button>
+        </form>
+      </section>
+    </main>
+
+    <!-- ======================================================
+         VIEW 2: CHAT DASHBOARD
+         "hidden" class se shuru me chhupa rehta hai. Login success hone par
+         JS ye class hata deta hai aur dashboard dikh jaata hai.
+         ====================================================== -->
+    <div id="chat-view" class="chat-app hidden">
+      <!-- ================= LEFT SIDEBAR ================= -->
+      <aside class="sidebar">
+        <!-- Profile header: logged-in user ka avatar, naam aur logout button -->
+        <header class="sidebar-header">
+          <div class="profile">
+            <!-- JS login ke baad is avatar me image ya pehla letter daalega -->
+            <div class="avatar avatar-me" id="my-avatar" title="Click to change profile picture">
+              <span class="avatar-letter">S</span>
+              <div class="avatar-overlay"><span>📷</span></div>
+            </div>
+            <input type="file" id="avatar-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display: none;" />
+            <div class="profile-info">
+              <!-- JS yahan logged-in user ka username daalega -->
+              <h2 id="my-name">User</h2>
+              <span class="profile-status">● Online</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            id="logout-btn"
+            class="icon-btn"
+            title="Logout"
+          >
+            ⎋
+          </button>
+          <button id="create-group-btn" class="secondary-btn">+ New Group</button>
+        </header>
+
+        <!-- Search bar: conversations filter karne ke liye -->
+        <div class="search-box">
+          <input
+            type="text"
+            id="search-input"
+            placeholder="Search conversations..."
+          />
+        </div>
+
+        <!-- Conversations list (abhi mock data hai, real users aage ke phase me aayenge). -->
+        <ul class="conversation-list" id="conversation-list">
+          <li
+            class="conversation-item active"
+            data-name="Rahul Sharma"
+            data-status="online"
+          >
+            <div class="avatar avatar-blue">
+              R<span class="online-badge"></span>
+            </div>
+            <div class="conversation-info">
+              <div class="conversation-top">
+                <h3>Rahul Sharma</h3>
+                <span class="conversation-time">10:42 AM</span>
+              </div>
+              <p class="conversation-last">Kal lab ke assignment ka kya hua?</p>
+            </div>
+          </li>
+
+          <li
+            class="conversation-item"
+            data-name="Priya Patel"
+            data-status="online"
+          >
+            <div class="avatar avatar-pink">
+              P<span class="online-badge"></span>
+            </div>
+            <div class="conversation-info">
+              <div class="conversation-top">
+                <h3>Priya Patel</h3>
+                <span class="conversation-time">9:15 AM</span>
+              </div>
+              <p class="conversation-last">UML diagrams bhej dena please</p>
+            </div>
+          </li>
+
+          <li
+            class="conversation-item"
+            data-name="Amit Joshi"
+            data-status="offline"
+          >
+            <div class="avatar avatar-green">A</div>
+            <div class="conversation-info">
+              <div class="conversation-top">
+                <h3>Amit Joshi</h3>
+                <span class="conversation-time">Yesterday</span>
+              </div>
+              <p class="conversation-last">Ok done, thanks bhai 👍</p>
+            </div>
+          </li>
+
+          <li
+            class="conversation-item"
+            data-name="CN Project Group"
+            data-status="online"
+          >
+            <div class="avatar avatar-orange">
+              C<span class="online-badge"></span>
+            </div>
+            <div class="conversation-info">
+              <div class="conversation-top">
+                <h3>CN Project Group</h3>
+                <span class="conversation-time">Yesterday</span>
+              </div>
+              <p class="conversation-last">Meeting kal 4 baje library me</p>
+            </div>
+          </li>
+
+          <li
+            class="conversation-item"
+            data-name="Neha Desai"
+            data-status="offline"
+          >
+            <div class="avatar avatar-purple">N</div>
+            <div class="conversation-info">
+              <div class="conversation-top">
+                <h3>Neha Desai</h3>
+                <span class="conversation-time">Mon</span>
+              </div>
+              <p class="conversation-last">Notes mil gaye, thank you!</p>
+            </div>
+          </li>
+        </ul>
+      </aside>
+
+      <!-- ================= RIGHT CHAT AREA ================= -->
+      <section class="chat-area">
+        <!-- Chat header: kisse baat ho rahi hai uska naam aur status -->
+        <header class="chat-header">
+          <!-- Back button sirf mobile par dikhega (CSS media query se) -->
+          <button type="button" id="back-btn" class="icon-btn back-btn">
+            ←
+          </button>
+
+          <div class="avatar avatar-blue" id="chat-avatar">R</div>
+
+          <div class="chat-header-info">
+            <h2 id="chat-name">Rahul Sharma</h2>
+            <span id="chat-status" class="chat-status online">online</span>
+            <!-- Typing indicator placeholder: abhi hidden hai -->
+            <span id="typing-indicator" class="typing-indicator hidden">
+              typing<span class="dots"><i>.</i><i>.</i><i>.</i></span>
+            </span>
+          </div>
+
+          <div class="chat-header-actions" id="chat-header-actions">
+            <button type="button" id="chat-menu-btn" class="icon-btn" title="Chat options">⋮</button>
+            <div id="chat-dropdown-menu" class="chat-header-dropdown hidden">
+              <button type="button" id="clear-chat-btn" class="chat-dropdown-item">
+                <span>🧹</span> Clear Chat
+              </button>
+              <button type="button" id="block-user-btn" class="chat-dropdown-item danger">
+                <span>🚫</span> <span id="block-btn-text">Block User</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <!-- Message feed: saare messages yahan scroll honge -->
+        <div class="message-feed" id="message-feed">
+          <div class="date-divider"><span>Today</span></div>
+
+          <div class="message received">
+            <p class="message-text">Hey! Kaise ho? 😊</p>
+            <span class="message-time">10:30 AM</span>
+          </div>
+
+          <div class="message sent">
+            <p class="message-text">Main badhiya, tu bata. Project ka kya scene hai?</p>
+            <span class="message-time">10:32 AM</span>
+          </div>
+
+          <div class="message received">
+            <p class="message-text">
+              Frontend ka layout ban gaya hai, ab Socket.IO lagana hai.
+            </p>
+            <span class="message-time">10:40 AM</span>
+          </div>
+
+          <div class="message received">
+            <p class="message-text">Kal lab ke assignment ka kya hua?</p>
+            <span class="message-time">10:42 AM</span>
+          </div>
+        </div>
+
+        <!-- Blocked user banner -->
+        <div id="blocked-banner" class="blocked-banner hidden">
+          <span id="blocked-banner-text">You have blocked this contact.</span>
+          <button type="button" id="unblock-banner-btn" class="unblock-banner-btn">Unblock</button>
+        </div>
+
+        <!-- Emoji Picker Container -->
+        <div id="emoji-picker-container" class="emoji-picker-container hidden">
+          <div class="emoji-picker-header">
+            <div class="emoji-category-tabs" id="emoji-category-tabs">
+              <button type="button" class="emoji-tab-btn active" data-category="smileys">😀 Smileys</button>
+              <button type="button" class="emoji-tab-btn" data-category="gestures">👍 Gestures</button>
+              <button type="button" class="emoji-tab-btn" data-category="hearts">❤️ Hearts</button>
+              <button type="button" class="emoji-tab-btn" data-category="party">🎉 Party</button>
+              <button type="button" class="emoji-tab-btn" data-category="popular">🔥 Popular</button>
+            </div>
+            <button type="button" id="close-emoji-picker" class="close-emoji-btn" title="Close">✕</button>
+          </div>
+          <div class="emoji-picker-search">
+            <input type="text" id="emoji-search-input" placeholder="Search emojis..." autocomplete="off" />
+          </div>
+          <div id="emoji-grid" class="emoji-grid"></div>
+        </div>
+
+        <!-- Action bar for Reply and Edit previews -->
+        <div id="message-action-bar" class="message-action-bar hidden">
+          <div class="action-bar-content">
+            <span id="action-bar-title" class="action-bar-title">Replying to User</span>
+            <p id="action-bar-text" class="action-bar-text">Message preview</p>
+          </div>
+          <button type="button" id="cancel-action-btn" class="cancel-action-btn" title="Cancel">✕</button>
+        </div>
+
+        <!-- Message input bar: <form> use kiya hai taaki Enter dabane par bhi message send ho. -->
+        <form class="message-input-bar" id="message-form">
+          <button type="button" id="emoji-btn" class="emoji-btn" title="Insert Emoji">😊</button>
+          <label for="file-input" class="attach-btn" title="Attach File">📎</label>
+          <input
+            type="text"
+            id="message-input"
+            placeholder="Type a message..."
+            autocomplete="off"
+          />
+          <button type="submit" class="send-btn" title="Send">➤</button>
+          <input type="file" id="file-input" accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.csv,.doc,.docx,.ppt,.pptx,.xls,.xlsx" style="display: none;" />
+        </form>
+      </section>
+    </div>
+
+    <div id="app-notice" class="app-notice hidden" role="status" aria-live="polite"></div>
+
+    <dialog id="create-group-dialog" class="group-dialog">
+      <form id="create-group-form" class="group-form">
+        <header class="group-form-header">
+          <h2>Create a group</h2>
+          <p>Choose the people who should be included.</p>
+        </header>
+
+        <div class="group-name-field">
+          <label for="group-name">Group name</label>
+          <input id="group-name" name="name" type="text" maxlength="60" required />
+        </div>
+
+        <fieldset class="group-member-fieldset">
+          <legend>Members</legend>
+          <div id="group-member-list" class="group-member-list"></div>
+          <p id="group-members-empty" class="group-members-empty hidden">No other registered users are available.</p>
+        </fieldset>
+
+        <p id="group-error" class="form-error" role="alert"></p>
+        <div class="group-form-actions">
+          <button type="button" id="cancel-group-btn" class="secondary-btn">Cancel</button>
+          <button type="submit" id="submit-group-btn" class="btn-primary">Create Group</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Delete Message Dialog -->
+    <dialog id="delete-dialog" class="action-dialog">
+      <div class="action-dialog-body">
+        <h3>Delete message?</h3>
+        <p id="delete-dialog-desc">Are you sure you want to delete this message?</p>
+        <div class="action-dialog-buttons">
+          <button type="button" id="delete-for-everyone-btn" class="btn-danger">Delete for everyone</button>
+          <button type="button" id="delete-for-me-btn" class="secondary-btn">Delete for me</button>
+          <button type="button" id="delete-cancel-btn" class="secondary-btn">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Forward/Share Message Dialog -->
+    <dialog id="forward-dialog" class="action-dialog forward-dialog">
+      <div class="action-dialog-body">
+        <div class="forward-header">
+          <h3>Forward message to...</h3>
+          <button type="button" id="forward-cancel-btn" class="icon-btn">✕</button>
+        </div>
+        <ul id="forward-list" class="forward-list"></ul>
+      </div>
+    </dialog>
+
+    <!-- Clear Chat Confirmation Dialog -->
+    <dialog id="clear-chat-dialog" class="action-dialog">
+      <div class="action-dialog-body">
+        <h3>Clear this chat?</h3>
+        <p id="clear-chat-desc">Are you sure you want to clear all messages in this conversation? Messages will be deleted for you.</p>
+        <div class="action-dialog-buttons">
+          <button type="button" id="confirm-clear-chat-btn" class="btn-danger">Clear Chat</button>
+          <button type="button" id="cancel-clear-chat-btn" class="secondary-btn">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- Block / Unblock User Confirmation Dialog -->
+    <dialog id="block-user-dialog" class="action-dialog">
+      <div class="action-dialog-body">
+        <h3 id="block-dialog-title">Block User?</h3>
+        <p id="block-dialog-desc">Blocked contacts will no longer be able to send you messages.</p>
+        <div class="action-dialog-buttons">
+          <button type="button" id="confirm-block-user-btn" class="btn-danger">Block</button>
+          <button type="button" id="cancel-block-user-btn" class="secondary-btn">Cancel</button>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- JS file sabse neeche, taaki pehle saara HTML ban jaye, phir JS usse access kare. -->
+    <script src="js/app.js"></script>
+  </body>
+</html>
